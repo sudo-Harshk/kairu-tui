@@ -1,4 +1,4 @@
-# Kairu
+# Kairu TUI
 
 A TUI time tracker inspired by Pomodoro technique with ASCII art timer and activity analytics.
 
@@ -31,7 +31,7 @@ go run main.go
 
 ## Configuration
 
-## Create kairu.yaml in the project root:
+### Create kairu.yaml in the project root:
 
 
 ```bash
@@ -43,3 +43,4 @@ sessions_before_break: 4   # trigger break after N sessions
 ```
 
 ##
+
