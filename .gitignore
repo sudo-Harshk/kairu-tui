@@ -1,0 +1,12 @@
+go.mod
+go.sum
+kairu-tui
+kairu-tui.exe
+entries.json
+kairu.yaml
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
