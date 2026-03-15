@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,9 +38,17 @@ var defaultConfig = Config{
 
 type model struct {
 	seconds        int
+	sessionTarget  int
+	sessionElapsed int
+	width          int
 	running        bool
 	mode           string
+	editReturnMode string
+	editWasRunning bool
 	textInput      textinput.Model
+	durationInput  textinput.Model
+	focusedField   int
+	inputError     string
 	taskName       string
 	entries        []Entry
 	dataFile       string
@@ -60,6 +69,11 @@ type Entry struct {
 
 type tickTockMsg time.Time
 
+const (
+	focusTask = iota
+	focusDuration
+)
+
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickTockMsg(t) })
 }
@@ -77,14 +91,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickTockMsg:
 		if m.running && (m.mode == "timer" || m.mode == "break") {
-			m.seconds++
-			if m.mode == "timer" {
-				m.totalWorkTime++
-			} else {
-				m.totalBreakTime++
+			if m.seconds > 0 {
+				m.seconds--
+				m.sessionElapsed++
+				if m.mode == "timer" {
+					m.totalWorkTime++
+				} else {
+					m.totalBreakTime++
+				}
 			}
+			if m.seconds == 0 {
+				return m.completeSession()
+			}
+			return m, tickCmd()
 		}
-		return m, tickCmd()
+		return m, nil
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -95,72 +120,120 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "tab":
+			if m.mode == "input" {
+				if m.focusedField == focusTask {
+					m = m.setInputFocus(focusDuration)
+				} else {
+					m = m.setInputFocus(focusTask)
+				}
+				return m, nil
+			}
 			if m.mode == "timer" || m.mode == "break" {
 				m.mode = "stats"
-			} else if m.mode == "stats" {
+				return m, nil
+			}
+			if m.mode == "stats" {
 				m.mode = "timer"
+				return m, nil
 			}
-			return m, nil
-
-		case "up", "k":
-			if m.mode == "timer" || m.mode == "break" {
-				m.seconds += 60
-			}
-			return m, nil
-
-		case "down", "j":
-			if (m.mode == "timer" || m.mode == "break") && m.seconds >= 60 {
-				m.seconds -= 60
-			}
-			return m, nil
 
 		case "enter":
 			if m.mode == "input" {
 				if strings.TrimSpace(m.textInput.Value()) == "" {
+					m.inputError = "Task name is required."
+					return m, nil
+				}
+				durationSeconds, err := parseDurationInput(m.durationInput.Value())
+				if err != nil {
+					m.inputError = err.Error()
 					return m, nil
 				}
 				m.mode = "timer"
-				m.taskName = m.textInput.Value()
+				m.taskName = strings.TrimSpace(m.textInput.Value())
 				m.textInput.Blur()
+				m.durationInput.Blur()
 				m.sessionStart = time.Now()
 				m.running = true
-				m.seconds = m.config.WorkDuration * 60
+				m.sessionTarget = durationSeconds
+				m.seconds = durationSeconds
+				m.sessionElapsed = 0
+				m.inputError = ""
 				return m, tickCmd()
 			}
 
-			if m.mode == "timer" {
-				m.saveSession()
-				m.sessionCount++
-
-				if m.config.AutoBreak && m.sessionCount%m.config.SessionsBeforeBreak == 0 {
-					m.mode = "break"
-					m.seconds = m.config.BreakDuration * 60
+			if m.mode == "edit" {
+				durationSeconds, err := parseDurationInput(m.durationInput.Value())
+				if err != nil {
+					m.inputError = err.Error()
+					return m, nil
+				}
+				if durationSeconds <= m.sessionElapsed {
+					m.inputError = "Duration must be greater than elapsed time."
+					return m, nil
+				}
+				m.sessionTarget = durationSeconds
+				m.seconds = durationSeconds - m.sessionElapsed
+				m.mode = m.editReturnMode
+				m.inputError = ""
+				if m.editWasRunning && m.seconds > 0 {
 					m.running = true
 					return m, tickCmd()
 				}
-
-				m.mode = "input"
-				m.taskName = ""
-				m.seconds = 0
-				m.running = false
-				m.textInput.SetValue("")
-				m.textInput.Focus()
 				return m, nil
 			}
 
-			if m.mode == "break" {
-				m.saveSession()
-				m.mode = "input"
-				m.seconds = 0
+			if m.mode == "timer" || m.mode == "break" {
+				return m.completeSession()
+			}
+		case " ", "space":
+			if m.mode == "timer" || m.mode == "break" {
+				m.running = !m.running
+				if m.running && m.seconds > 0 {
+					return m, tickCmd()
+				}
+				return m, nil
+			}
+		case "e":
+			if m.mode == "timer" || m.mode == "break" {
+				m.editReturnMode = m.mode
+				m.editWasRunning = m.running
 				m.running = false
-				m.textInput.SetValue("")
-				m.textInput.Focus()
+				m.mode = "edit"
+				m.durationInput.SetValue(formatDurationInput(m.sessionTarget))
+				m.durationInput.Focus()
+				m.textInput.Blur()
+				m.inputError = ""
+				return m, nil
+			}
+		case "esc":
+			if m.mode == "edit" {
+				m.mode = m.editReturnMode
+				m.inputError = ""
+				if m.editWasRunning && m.seconds > 0 {
+					m.running = true
+					return m, tickCmd()
+				}
 				return m, nil
 			}
 		}
 
 		if m.mode == "input" {
-			m.textInput, cmd = m.textInput.Update(msg)
+			if m.focusedField == focusTask {
+				m.textInput, cmd = m.textInput.Update(msg)
+			} else {
+				m.durationInput, cmd = m.durationInput.Update(msg)
+			}
+			if m.inputError != "" {
+				m.inputError = ""
+			}
+			return m, cmd
+		}
+
+		if m.mode == "edit" {
+			m.durationInput, cmd = m.durationInput.Update(msg)
+			if m.inputError != "" {
+				m.inputError = ""
+			}
 			return m, cmd
 		}
 	}
@@ -168,8 +241,104 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) setInputFocus(field int) model {
+	m.focusedField = field
+	if field == focusTask {
+		m.textInput.Focus()
+		m.durationInput.Blur()
+	} else {
+		m.durationInput.Focus()
+		m.textInput.Blur()
+	}
+	return m
+}
+
+func (m model) completeSession() (tea.Model, tea.Cmd) {
+	m.saveSession()
+	if m.mode == "timer" {
+		m.sessionCount++
+		if m.config.AutoBreak && m.sessionCount%m.config.SessionsBeforeBreak == 0 {
+			m.mode = "break"
+			m.sessionStart = time.Now()
+			m.sessionTarget = m.config.BreakDuration * 60
+			m.seconds = m.sessionTarget
+			m.sessionElapsed = 0
+			m.running = true
+			return m, tickCmd()
+		}
+	}
+
+	m.mode = "input"
+	m.taskName = ""
+	m.seconds = 0
+	m.sessionTarget = 0
+	m.sessionElapsed = 0
+	m.running = false
+	m.inputError = ""
+	m.textInput.SetValue("")
+	m = m.setInputFocus(focusTask)
+	return m, nil
+}
+
+func parseDurationInput(input string) (int, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return 0, fmt.Errorf("Duration is required.")
+	}
+
+	if strings.Contains(trimmed, ":") {
+		parts := strings.Split(trimmed, ":")
+		if len(parts) != 2 {
+			return 0, fmt.Errorf("Use mm or hh:mm for duration.")
+		}
+		hours, err := strconv.Atoi(parts[0])
+		if err != nil || hours < 0 {
+			return 0, fmt.Errorf("Hours must be a positive number.")
+		}
+		minutes, err := strconv.Atoi(parts[1])
+		if err != nil || minutes < 0 || minutes > 59 {
+			return 0, fmt.Errorf("Minutes must be between 0 and 59.")
+		}
+		total := hours*3600 + minutes*60
+		if total == 0 {
+			return 0, fmt.Errorf("Duration must be greater than 0.")
+		}
+		return total, nil
+	}
+
+	minutes, err := strconv.Atoi(trimmed)
+	if err != nil || minutes <= 0 {
+		return 0, fmt.Errorf("Duration must be a positive number of minutes.")
+	}
+	return minutes * 60, nil
+}
+
+func formatDurationInput(seconds int) string {
+	if seconds <= 0 {
+		return "0"
+	}
+	hours := seconds / 3600
+	minutes := (seconds % 3600) / 60
+	if hours > 0 {
+		return fmt.Sprintf("%d:%02d", hours, minutes)
+	}
+	return fmt.Sprintf("%d", minutes)
+}
+
+func formatClock(seconds int) string {
+	h, m, s := seconds/3600, (seconds%3600)/60, seconds%60
+	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+}
+
+func centerBlock(width int, content string) string {
+	if width <= 0 {
+		return content
+	}
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(content)
+}
+
 func (m model) saveSession() {
-	duration := m.seconds
+	duration := m.sessionElapsed
 	sessionType := "work"
 	if m.mode == "break" {
 		sessionType = "break"
@@ -223,6 +392,8 @@ func (m model) View() string {
 		return renderInputView(m)
 	case "timer", "break":
 		return renderTimerView(m)
+	case "edit":
+		return renderEditView(m)
 	case "stats":
 		return renderStatsView(m)
 	default:
@@ -231,6 +402,10 @@ func (m model) View() string {
 }
 
 func renderInputView(m model) string {
+	errorLine := ""
+	if m.inputError != "" {
+		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.inputError)
+	}
 	return fmt.Sprintf(`
 ╭─────────────────────────────────────╮
 │  📝  What are you working on?      │
@@ -238,18 +413,40 @@ func renderInputView(m model) string {
 
 %s
 
-[Enter] Start   [Tab] Stats   [q] Quit
-`, m.textInput.View())
+%s
+
+%s
+
+[Tab] Switch Field   [Enter] Start   [q] Quit
+`, m.textInput.View(), m.durationInput.View(), errorLine)
+}
+
+func renderEditView(m model) string {
+	errorLine := ""
+	if m.inputError != "" {
+		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.inputError)
+	}
+	elapsed := formatClock(m.sessionElapsed)
+	return fmt.Sprintf(`
+%s
+
+╭─────────────────────────────────────╮
+│  ✏️  Adjust Session Time           │
+╰─────────────────────────────────────╯
+
+Task: %s
+Elapsed: %s
+
+%s
+
+%s
+
+[Enter] Apply   [Esc] Cancel   [q] Quit
+`, renderBanner(), m.taskName, elapsed, m.durationInput.View(), errorLine)
 }
 
 func renderTimerView(m model) string {
-	h, mnt, s := m.seconds/3600, (m.seconds%3600)/60, m.seconds%60
-	timeStr := fmt.Sprintf("%02d:%02d:%02d", h, mnt, s)
-
-	status := "▶ RUNNING"
-	if !m.running {
-		status = "⏸ PAUSED"
-	}
+	timeStr := formatClock(m.seconds)
 
 	modeStr := "🎯 WORK"
 	if m.mode == "break" {
@@ -257,40 +454,45 @@ func renderTimerView(m model) string {
 	}
 
 	// Progress bar
-	targetSeconds := m.config.WorkDuration * 60
-	if m.mode == "break" {
-		targetSeconds = m.config.BreakDuration * 60
+	targetSeconds := m.sessionTarget
+	if targetSeconds <= 0 {
+		targetSeconds = 1
 	}
-	progressPct := float64(m.seconds) / float64(targetSeconds) * 100
-	if progressPct > 100 {
-		progressPct = 100
+	remainingPct := float64(m.seconds) / float64(targetSeconds) * 100
+	if remainingPct > 100 {
+		remainingPct = 100
+	}
+	if remainingPct < 0 {
+		remainingPct = 0
 	}
 	barWidth := 40
-	filled := int(progressPct / 100 * float64(barWidth))
+	filled := int(remainingPct / 100 * float64(barWidth))
 	empty := barWidth - filled
-	progress := fmt.Sprintf("[%s%s] %.0f%%\n", strings.Repeat("█", filled), strings.Repeat("░", empty), progressPct)
+	progress := fmt.Sprintf("[%s%s] %.0f%%", strings.Repeat("█", filled), strings.Repeat("░", empty), remainingPct)
 
-	hint := "[Space] Pause  [↑/↓] Adjust  [Enter] End  [Tab] Stats  [q] Quit"
+	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [q] Quit"
 	if !m.running {
-		hint = "[Space] Resume  [↑/↓] Adjust  [Enter] End  [Tab] Stats  [q] Quit"
+		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [q] Quit"
 	}
 
 	return fmt.Sprintf(`
 %s
 
-╭─────────────────────────────────────╮
-│  %s  %-20s  │
-╰─────────────────────────────────────╯
+%s
 
 %s
 
-   ⏱  %s  •  %s
-
-Session #%d
+%s
 
 %s
+
 %s
-`, renderBanner(), modeStr, m.taskName, renderASCIITimer(timeStr), timeStr, status, m.sessionCount+1, progress, hint)
+`, centerBlock(m.width, renderBanner()),
+		centerBlock(m.width, fmt.Sprintf("╭─────────────────────────────────────╮\n│  %s  %-20s  │\n╰─────────────────────────────────────╯", modeStr, m.taskName)),
+		centerBlock(m.width, renderASCIITimer(timeStr)),
+		centerBlock(m.width, fmt.Sprintf("Session #%d", m.sessionCount+1)),
+		centerBlock(m.width, progress),
+		centerBlock(m.width, hint))
 }
 
 func renderASCIITimer(timeStr string) string {
@@ -485,10 +687,19 @@ func renderBanner() string {
 func main() {
 	dataFile := "entries.json"
 	ti := textinput.New()
-	ti.Placeholder = "What are you working on?"
+	ti.Placeholder = "Task name"
 	ti.Focus()
 	ti.CharLimit = 50
 	ti.Width = 40
+	ti.Prompt = "Task: "
+
+	di := textinput.New()
+	di.Placeholder = "25"
+	di.CharLimit = 8
+	di.Width = 16
+	di.Prompt = "Duration (mm or hh:mm): "
+	di.SetValue(fmt.Sprintf("%d", defaultConfig.WorkDuration))
+	di.Blur()
 
 	var entryList []Entry
 	if data, err := os.ReadFile(dataFile); err == nil {
@@ -496,11 +707,13 @@ func main() {
 	}
 
 	m := model{
-		mode:      "input",
-		textInput: ti,
-		entries:   entryList,
-		dataFile:  dataFile,
-		config:    defaultConfig,
+		mode:          "input",
+		textInput:     ti,
+		durationInput: di,
+		focusedField:  focusTask,
+		entries:       entryList,
+		dataFile:      dataFile,
+		config:        defaultConfig,
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())

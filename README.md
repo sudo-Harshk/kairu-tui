@@ -5,9 +5,10 @@ A TUI time tracker inspired by Pomodoro technique with ASCII art timer and activ
 ## Features
 
 - **ASCII Art Timer** - Large, beautiful digital display
+- **Custom Session Duration** - Set time per session (mm or hh:mm)
 - **Weekly Bar Chart** - Visualize your 7-day activity
 - **Desktop Notifications** - Get notified when sessions end
-- **Keyboard Controls** - Adjust time with ↑/↓, pause with Space
+- **Keyboard Controls** - Use Tab to switch fields, Space to pause, E to edit time
 - **Work/Break Cycles** - Pomodoro-style productivity
 - **Activity Dashboard** - Track streaks, ratios, and totals
 - **Local Storage** - All data stays on your machine

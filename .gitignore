@@ -10,3 +10,4 @@ kairu.yaml
 *.swo
 .DS_Store
 Thumbs.db
+bugs/
