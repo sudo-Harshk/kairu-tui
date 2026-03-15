@@ -427,8 +427,7 @@ func renderEditView(m model) string {
 		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.inputError)
 	}
 	elapsed := formatClock(m.sessionElapsed)
-	return fmt.Sprintf(`
-%s
+	block := fmt.Sprintf(`%s
 
 ╭─────────────────────────────────────╮
 │  ✏️  Adjust Session Time           │
@@ -441,16 +440,16 @@ Elapsed: %s
 
 %s
 
-[Enter] Apply   [Esc] Cancel   [q] Quit
-`, renderBanner(), m.taskName, elapsed, m.durationInput.View(), errorLine)
+[Enter] Apply   [Esc] Cancel   [q] Quit`, renderBanner(), m.taskName, elapsed, m.durationInput.View(), errorLine)
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderTimerView(m model) string {
 	timeStr := formatClock(m.seconds)
 
-	modeStr := "🎯 WORK"
+	modeStr := "WORK"
 	if m.mode == "break" {
-		modeStr = "☕ BREAK"
+		modeStr = "BREAK"
 	}
 
 	// Progress bar
@@ -475,24 +474,18 @@ func renderTimerView(m model) string {
 		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [q] Quit"
 	}
 
-	return fmt.Sprintf(`
-%s
+	header := fmt.Sprintf("%s • %s", modeStr, m.taskName)
+	timerFrame := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		Padding(0, 1).
+		Render(fmt.Sprintf("%s\n\n%s", renderASCIITimer(timeStr), progress))
+
+	block := fmt.Sprintf(`%s
 
 %s
 
-%s
-
-%s
-
-%s
-
-%s
-`, centerBlock(m.width, renderBanner()),
-		centerBlock(m.width, fmt.Sprintf("╭─────────────────────────────────────╮\n│  %s  %-20s  │\n╰─────────────────────────────────────╯", modeStr, m.taskName)),
-		centerBlock(m.width, renderASCIITimer(timeStr)),
-		centerBlock(m.width, fmt.Sprintf("Session #%d", m.sessionCount+1)),
-		centerBlock(m.width, progress),
-		centerBlock(m.width, hint))
+%s`, header, timerFrame, hint)
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderASCIITimer(timeStr string) string {
