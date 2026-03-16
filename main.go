@@ -2,7 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -13,27 +17,77 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/joho/godotenv"
+	"gopkg.in/yaml.v3"
 )
 
-// Configuration (defaults only - expand with YAML later)
+// Configuration (loaded from YAML/env with defaults)
 type Config struct {
-	WorkDuration        int
-	BreakDuration       int
-	Font                string
-	Notifications       bool
-	SoundCommand        string
-	AutoBreak           bool
-	SessionsBeforeBreak int
+	WorkDuration        int    `yaml:"work_duration"`
+	BreakDuration       int    `yaml:"break_duration"`
+	Font                string `yaml:"font"`
+	Notifications       bool   `yaml:"notifications"`
+	SoundCommand        string `yaml:"sound_command"`
+	AutoBreak           bool   `yaml:"auto_break"`
+	SessionsBeforeBreak int    `yaml:"sessions_before_break"`
+	TelegramBotToken    string `yaml:"-"`
+	TelegramChatID      string `yaml:"-"`
 }
 
 var defaultConfig = Config{
 	WorkDuration:        25,
 	BreakDuration:       5,
 	Font:                "ansi",
-	Notifications:       true,
+	Notifications:       false,
 	SoundCommand:        "",
 	AutoBreak:           false,
 	SessionsBeforeBreak: 4,
+	TelegramBotToken:    "",
+	TelegramChatID:      "",
+}
+
+const (
+	envTelegramBotToken = "KAIRU_TELEGRAM_BOT_TOKEN"
+	envTelegramChatID   = "KAIRU_TELEGRAM_CHAT_ID"
+)
+
+func loadEnvFile(path string) error {
+	if err := godotenv.Load(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func loadConfig(path string) (Config, error) {
+	cfg := defaultConfig
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			applyEnvOverrides(&cfg)
+			return cfg, nil
+		}
+		applyEnvOverrides(&cfg)
+		return cfg, err
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		applyEnvOverrides(&cfg)
+		return cfg, err
+	}
+	applyEnvOverrides(&cfg)
+	return cfg, nil
+}
+
+func applyEnvOverrides(cfg *Config) {
+	if val := strings.TrimSpace(os.Getenv(envTelegramBotToken)); val != "" {
+		cfg.TelegramBotToken = val
+	}
+
+	if val := strings.TrimSpace(os.Getenv(envTelegramChatID)); val != "" {
+		cfg.TelegramChatID = val
+	}
 }
 
 type model struct {
@@ -362,28 +416,57 @@ func (m model) saveSession() {
 	m.entries = entries
 
 	if m.config.Notifications {
-		m.sendNotification(sessionType)
+		if err := m.sendNotification(sessionType); err != nil {
+			fmt.Fprintln(os.Stderr, "Kairu:", err)
+		}
 	}
 }
 
-func (m model) sendNotification(sessionType string) {
-	msg := fmt.Sprintf("Session completed: %s", m.taskName)
-	if sessionType == "break" {
-		msg = "Break time!"
+func (m model) sendNotification(sessionType string) error {
+	if sessionType != "work" {
+		return nil
+	}
+	token := strings.TrimSpace(m.config.TelegramBotToken)
+	chatID := strings.TrimSpace(m.config.TelegramChatID)
+	if token == "" || chatID == "" {
+		return fmt.Errorf("telegram notifications require %s and %s", envTelegramBotToken, envTelegramChatID)
 	}
 
-	// Cross-platform notifications
-	if exec.Command("which", "notify-send").Run() == nil {
-		exec.Command("notify-send", "Kairu", msg).Run()
-	} else if exec.Command("which", "osascript").Run() == nil {
-		exec.Command("osascript", "-e", fmt.Sprintf(`display notification "%s" with title "Kairu"`, msg)).Run()
-	} else {
-		exec.Command("powershell", "-Command", fmt.Sprintf(`[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms"); [System.Windows.Forms.MessageBox]::Show("%s", "Kairu")`, msg)).Run()
+	msg := fmt.Sprintf("Session completed: %s (%s)", m.taskName, formatDuration(m.sessionElapsed))
+	if err := sendTelegramMessage(token, chatID, msg); err != nil {
+		return err
 	}
 
 	if m.config.SoundCommand != "" {
 		exec.Command("sh", "-c", m.config.SoundCommand).Run()
 	}
+	return nil
+}
+
+func sendTelegramMessage(token, chatID, text string) error {
+	endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	form := url.Values{}
+	form.Set("chat_id", chatID)
+	form.Set("text", text)
+
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("telegram send failed: %s", strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 func (m model) View() string {
@@ -685,6 +768,13 @@ func renderBanner() string {
 
 func main() {
 	dataFile := "entries.json"
+	if err := loadEnvFile(".env"); err != nil {
+		fmt.Fprintln(os.Stderr, "Kairu: failed to load .env:", err)
+	}
+	cfg, err := loadConfig("kairu.yaml")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Kairu: failed to load config:", err)
+	}
 	ti := textinput.New()
 	ti.Placeholder = "Task name"
 	ti.Focus()
@@ -697,7 +787,7 @@ func main() {
 	di.CharLimit = 8
 	di.Width = 16
 	di.Prompt = "Duration (mm or hh:mm): "
-	di.SetValue(fmt.Sprintf("%d", defaultConfig.WorkDuration))
+	di.SetValue(fmt.Sprintf("%d", cfg.WorkDuration))
 	di.Blur()
 
 	var entryList []Entry
@@ -712,7 +802,7 @@ func main() {
 		focusedField:  focusTask,
 		entries:       entryList,
 		dataFile:      dataFile,
-		config:        defaultConfig,
+		config:        cfg,
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())

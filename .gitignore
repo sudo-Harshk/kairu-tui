@@ -4,6 +4,8 @@ kairu-tui
 kairu-tui.exe
 entries.json
 kairu.yaml
+.env
+.env.*
 .vscode/
 .idea/
 *.swp
