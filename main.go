@@ -475,10 +475,16 @@ func renderTimerView(m model) string {
 	}
 
 	header := fmt.Sprintf("%s • %s", modeStr, m.taskName)
+	ascii := renderASCIITimer(timeStr)
+	innerWidth := lipgloss.Width(progress)
+	if asciiWidth := lipgloss.Width(ascii); asciiWidth > innerWidth {
+		innerWidth = asciiWidth
+	}
+	ascii = lipgloss.NewStyle().Width(innerWidth).Align(lipgloss.Center).Render(ascii)
 	timerFrame := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		Padding(0, 1).
-		Render(fmt.Sprintf("%s\n\n%s", renderASCIITimer(timeStr), progress))
+		Render(fmt.Sprintf("%s\n\n%s", ascii, progress))
 
 	block := fmt.Sprintf(`%s
 
