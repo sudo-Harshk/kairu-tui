@@ -14,44 +14,52 @@ A TUI time tracker inspired by Pomodoro technique with ASCII art timer and activ
 - **Local Storage** - All data stays on your machine
 - **Session Chaining** - Seamless workflow between tasks
 
-## Installation
+## Quick Start
 
-### From Source
+- Install Go 1.21+
+- Clone and run:
 
 ```bash
 git clone https://github.com/yourusername/kairu-tui.git
 cd kairu-tui
-go install .
-```
-
-## Run Directly
-
-```bash
 go run main.go
 ```
 
-## Configuration
-
-### Create kairu.yaml in the project root:
+Optional: install the binary to $GOPATH/bin
 
 ```bash
-work_duration: 25          # minutes
-break_duration: 5          # minutes
-notifications: true        # enable Telegram notifications
-auto_break: false          # auto-suggest breaks
-sessions_before_break: 4   # trigger break after N sessions
+go install .
 ```
 
-### Create .env in the project root (secrets)
+## Documentation
+
+- Setup: [docs/setup.md](docs/setup.md)
+- Usage: [docs/usage.md](docs/usage.md)
+- Configuration: [docs/configuration.md](docs/configuration.md)
+- Telegram Notifications: [docs/telegram-notifications.md](docs/telegram-notifications.md)
+- Overview: [docs/overview.md](docs/overview.md)
+- Architecture: [docs/architecture.md](docs/architecture.md)
+
+## Configuration Snapshot
+
+Create kairu.yaml in the project root and optionally .env for secrets. See full details in docs.
+
+```bash
+work_duration: 25
+break_duration: 5
+font: ansi
+notifications: false
+sound_command: ""
+auto_break: false
+sessions_before_break: 4
+```
+
+Environment variables (optional):
 
 ```bash
 KAIRU_TELEGRAM_BOT_TOKEN=your_bot_token
 KAIRU_TELEGRAM_CHAT_ID=your_chat_id
 ```
 
-### Telegram setup
-
-Create a bot with @BotFather, then set `KAIRU_TELEGRAM_BOT_TOKEN`. Get your chat ID by messaging the bot and checking updates from the Telegram API, then set `KAIRU_TELEGRAM_CHAT_ID`.
-
-##
+See the Telegram setup guide: [docs/telegram-notifications.md](docs/telegram-notifications.md)
 
