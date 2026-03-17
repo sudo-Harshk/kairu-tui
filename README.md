@@ -38,7 +38,6 @@ go install .
 - Configuration: [docs/configuration.md](docs/configuration.md)
 - Telegram Notifications: [docs/telegram-notifications.md](docs/telegram-notifications.md)
 - Overview: [docs/overview.md](docs/overview.md)
-- Architecture: [docs/architecture.md](docs/architecture.md)
 
 ## Configuration Snapshot
 
