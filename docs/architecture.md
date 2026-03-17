@@ -1,3 +1,4 @@
+````md
 # Architecture
 
 This page outlines the high-level architecture of Kairu TUI and the flow of a work session, including configuration, state, persistence, and notifications.
@@ -6,49 +7,68 @@ This page outlines the high-level architecture of Kairu TUI and the flow of a wo
 
 ```mermaid
 flowchart TD
+    %% UI Layer
     subgraph UI[TUI]
       IV[Input View]
-      TM[Timer/Break View]
+      TV[Timer View]
+      BV[Break View]
       EV[Edit View]
       SV[Stats View]
     end
 
+    %% Core Logic
     subgraph Core[Core Logic]
-      ST[State Model\n(mode, seconds, inputs,\nentries, totals)]
-      UP[Update Loop\n(tick, key events)]
-      VW[View Functions]
+      ST[State Model\n(mode, timeLeft, input,\nentries, totals, running)]
+      UP[Update Loop\n(tick + key events)]
+      VW[View Renderer]
+      CS[completeSession()]
     end
 
+    %% Configuration
     subgraph Config[Configuration]
+      DF[Defaults]
       KY[kairu.yaml]
       ENV[.env]
-      LC[loadConfig + applyEnvOverrides]
+      LC[loadConfig()]
     end
 
+    %% Persistence
     subgraph Data[Persistence]
       EN[entries.json]
       SS[saveSession()]
     end
 
+    %% Notifications
     subgraph Notify[Notifications]
       SN[sendNotification()]
       TG[sendTelegramMessage()]
       API[(Telegram API)]
     end
 
-    IV -->|Enter| ST
+    %% Flow
+    IV -->|start session| ST
     ST --> UP
     UP --> VW
-    VW --> TM
-    TM -->|Enter/Complete| SS --> EN
-    SS --> SN
-    SN -->|if notifications && work| TG --> API
+    VW --> TV
+    VW --> BV
+    VW --> EV
+    VW --> SV
 
-    KY --> LC --> ST
+    TV -->|complete / timeout| CS
+    BV -->|complete| CS
+
+    CS --> SS --> EN
+    CS --> SN
+    SN -->|if enabled & work session| TG --> API
+
+    %% Config flow
+    DF --> LC
+    KY --> LC
     ENV --> LC
-    SV --> VW
-    EV --> VW
+    LC --> ST
 ```
+
+---
 
 ## Session Completion Sequence
 
@@ -56,26 +76,48 @@ flowchart TD
 sequenceDiagram
     participant User
     participant UI as TUI
-    participant Core as Model/Update
+    participant Core as State/Update
     participant Store as entries.json
     participant TG as Telegram API
 
-    User->>UI: Enter task and duration
-    UI->>Core: Start timer (mode=timer,running=true)
-    Core->>Core: Tick each second (Update)
-    User->>UI: End session (Enter) or timer reaches 0
+    User->>UI: Enter task + duration
+    UI->>Core: startSession()
+
+    loop every second
+        Core->>Core: tick()
+    end
+
+    alt user ends early
+        User->>UI: Press Enter
+    else timer reaches zero
+        Core->>Core: auto-complete
+    end
+
     UI->>Core: completeSession()
-    Core->>Store: saveSession() append entry
-    alt notifications enabled and session is work
-        Core->>TG: sendTelegramMessage(token, chat_id, text)
+
+    Core->>Store: saveSession(entry)
+
+    alt notifications enabled AND session == work
+        Core->>TG: sendTelegramMessage()
         TG-->>Core: 200 OK
     end
-    Core->>UI: mode=input, reset inputs
+
+    Core->>UI: reset to input mode
 ```
 
-## Notes
-- Configuration loads defaults, merges kairu.yaml, then applies .env overrides for Telegram fields.
-- entries.json stores an append-only history of sessions (work and break).
-- Notifications are only sent for completed work sessions.
-- The UI runs as a state machine with modes: input, timer, break, edit, stats.
+---
 
+## Notes
+
+- Configuration loads in this order: **defaults → `kairu.yaml` → `.env` overrides**
+- `entries.json` stores an **append-only history** of sessions (work and break)
+- Notifications are only sent for **completed work sessions**
+- The UI operates as a **state machine** with modes:
+  - `input`
+  - `timer`
+  - `break`
+  - `edit`
+  - `stats`
+- All rendering follows a unidirectional flow:  
+  **State → Update → View**
+````
