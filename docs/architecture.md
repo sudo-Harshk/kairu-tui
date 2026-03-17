@@ -1,4 +1,3 @@
-````md
 # Architecture
 
 This page outlines the high-level architecture of Kairu TUI and the flow of a work session, including configuration, state, persistence, and notifications.
@@ -120,4 +119,4 @@ sequenceDiagram
   - `stats`
 - All rendering follows a unidirectional flow:  
   **State → Update → View**
-````
+
