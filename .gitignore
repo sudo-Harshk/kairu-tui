@@ -13,3 +13,4 @@ kairu.yaml
 .DS_Store
 Thumbs.db
 bugs/
+*txt

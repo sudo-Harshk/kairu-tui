@@ -478,8 +478,15 @@ func sendTelegramMessage(token, chatID, text string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("telegram send failed: %s", strings.TrimSpace(string(body)))
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if err != nil {
+			return fmt.Errorf("telegram send failed: %w", err)
+		}
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = resp.Status
+		}
+		return fmt.Errorf("telegram send failed: %s", message)
 	}
 	return nil
 }
@@ -757,8 +764,11 @@ func calculateStreaks(entries []Entry) (int, int) {
 		longest = temp
 	}
 
-	current := 0
 	today := time.Now()
+	if !days[today.Format("2006-01-02")] {
+		return 0, longest
+	}
+	current := 0
 	for i := 0; i < 365; i++ {
 		if days[today.AddDate(0, 0, -i).Format("2006-01-02")] {
 			current++
