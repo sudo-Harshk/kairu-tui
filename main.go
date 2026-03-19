@@ -408,11 +408,24 @@ func (m model) saveSession() {
 
 	var entries []Entry
 	if data, err := os.ReadFile(m.dataFile); err == nil {
-		json.Unmarshal(data, &entries)
+		if err := json.Unmarshal(data, &entries); err != nil {
+			fmt.Fprintln(os.Stderr, "Kairu: failed to parse entries:", err)
+			return
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(os.Stderr, "Kairu: failed to read entries:", err)
+		return
 	}
 	entries = append(entries, entry)
-	fileData, _ := json.MarshalIndent(entries, "", "  ")
-	os.WriteFile(m.dataFile, fileData, 0644)
+	fileData, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Kairu: failed to encode entries:", err)
+		return
+	}
+	if err := os.WriteFile(m.dataFile, fileData, 0644); err != nil {
+		fmt.Fprintln(os.Stderr, "Kairu: failed to write entries:", err)
+		return
+	}
 	m.entries = entries
 
 	if m.config.Notifications {
@@ -438,7 +451,9 @@ func (m model) sendNotification(sessionType string) error {
 	}
 
 	if m.config.SoundCommand != "" {
-		exec.Command("sh", "-c", m.config.SoundCommand).Run()
+		if err := exec.Command("sh", "-c", m.config.SoundCommand).Run(); err != nil {
+			return fmt.Errorf("sound command failed: %w", err)
+		}
 	}
 	return nil
 }
@@ -720,9 +735,13 @@ func calculateStreaks(entries []Entry) (int, int) {
 
 	longest, temp := 0, 0
 	var last time.Time
-	for i, d := range list {
-		date, _ := time.Parse("2006-01-02", d)
-		if i == 0 {
+	for _, d := range list {
+		date, err := time.Parse("2006-01-02", d)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Kairu: invalid entry date:", d)
+			continue
+		}
+		if last.IsZero() {
 			temp = 1
 		} else if int(date.Sub(last).Hours()/24) == 1 {
 			temp++
@@ -774,6 +793,7 @@ func main() {
 	cfg, err := loadConfig("kairu.yaml")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Kairu: failed to load config:", err)
+		os.Exit(1)
 	}
 	ti := textinput.New()
 	ti.Placeholder = "Task name"
@@ -792,7 +812,11 @@ func main() {
 
 	var entryList []Entry
 	if data, err := os.ReadFile(dataFile); err == nil {
-		json.Unmarshal(data, &entryList)
+		if err := json.Unmarshal(data, &entryList); err != nil {
+			fmt.Fprintln(os.Stderr, "Kairu: failed to parse entries:", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(os.Stderr, "Kairu: failed to read entries:", err)
 	}
 
 	m := model{
