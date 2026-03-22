@@ -99,10 +99,13 @@ type model struct {
 	mode           string
 	editReturnMode string
 	editWasRunning bool
+	helpReturnMode string
+	helpWasRunning bool
 	textInput      textinput.Model
 	durationInput  textinput.Model
 	focusedField   int
 	inputError     string
+	appError       string
 	taskName       string
 	entries        []Entry
 	dataFile       string
@@ -133,6 +136,9 @@ func tickCmd() tea.Cmd {
 }
 
 func (m model) Init() tea.Cmd {
+	if m.mode == "fatal" {
+		return nil
+	}
 	if (m.mode == "timer" || m.mode == "break") && m.running {
 		return tickCmd()
 	}
@@ -140,8 +146,6 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-
 	switch msg := msg.(type) {
 	case tickTockMsg:
 		if m.running && (m.mode == "timer" || m.mode == "break") {
@@ -166,130 +170,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			if m.mode == "timer" && m.seconds > 0 {
-				m.saveSession()
+		key := msg.String()
+		if m.mode == "fatal" {
+			switch key {
+			case "ctrl+c", "q", "enter", "esc":
+				return m, tea.Quit
 			}
-			return m, tea.Quit
-
-		case "tab":
-			if m.mode == "input" {
-				if m.focusedField == focusTask {
-					m = m.setInputFocus(focusDuration)
-				} else {
-					m = m.setInputFocus(focusTask)
-				}
-				return m, nil
-			}
-			if m.mode == "timer" || m.mode == "break" {
-				m.mode = "stats"
-				return m, nil
-			}
-			if m.mode == "stats" {
-				m.mode = "timer"
-				return m, nil
-			}
-
-		case "enter":
-			if m.mode == "input" {
-				if strings.TrimSpace(m.textInput.Value()) == "" {
-					m.inputError = "Task name is required."
-					return m, nil
-				}
-				durationSeconds, err := parseDurationInput(m.durationInput.Value())
-				if err != nil {
-					m.inputError = err.Error()
-					return m, nil
-				}
-				m.mode = "timer"
-				m.taskName = strings.TrimSpace(m.textInput.Value())
-				m.textInput.Blur()
-				m.durationInput.Blur()
-				m.sessionStart = time.Now()
-				m.running = true
-				m.sessionTarget = durationSeconds
-				m.seconds = durationSeconds
-				m.sessionElapsed = 0
-				m.inputError = ""
-				return m, tickCmd()
-			}
-
-			if m.mode == "edit" {
-				durationSeconds, err := parseDurationInput(m.durationInput.Value())
-				if err != nil {
-					m.inputError = err.Error()
-					return m, nil
-				}
-				if durationSeconds <= m.sessionElapsed {
-					m.inputError = "Duration must be greater than elapsed time."
-					return m, nil
-				}
-				m.sessionTarget = durationSeconds
-				m.seconds = durationSeconds - m.sessionElapsed
-				m.mode = m.editReturnMode
-				m.inputError = ""
-				if m.editWasRunning && m.seconds > 0 {
-					m.running = true
-					return m, tickCmd()
-				}
-				return m, nil
-			}
-
-			if m.mode == "timer" || m.mode == "break" {
-				return m.completeSession()
-			}
-		case " ", "space":
-			if m.mode == "timer" || m.mode == "break" {
-				m.running = !m.running
-				if m.running && m.seconds > 0 {
-					return m, tickCmd()
-				}
-				return m, nil
-			}
-		case "e":
-			if m.mode == "timer" || m.mode == "break" {
-				m.editReturnMode = m.mode
-				m.editWasRunning = m.running
-				m.running = false
-				m.mode = "edit"
-				m.durationInput.SetValue(formatDurationInput(m.sessionTarget))
-				m.durationInput.Focus()
-				m.textInput.Blur()
-				m.inputError = ""
-				return m, nil
-			}
-		case "esc":
-			if m.mode == "edit" {
-				m.mode = m.editReturnMode
-				m.inputError = ""
-				if m.editWasRunning && m.seconds > 0 {
-					m.running = true
-					return m, tickCmd()
-				}
-				return m, nil
-			}
+			return m, nil
 		}
 
-		if m.mode == "input" {
-			if m.focusedField == focusTask {
-				m.textInput, cmd = m.textInput.Update(msg)
-			} else {
-				m.durationInput, cmd = m.durationInput.Update(msg)
+		if key == "?" {
+			if m.mode == "help" {
+				return m.closeHelp(true)
 			}
-			if m.inputError != "" {
-				m.inputError = ""
-			}
-			return m, cmd
+			m = m.openHelp()
+			return m, nil
 		}
 
-		if m.mode == "edit" {
-			m.durationInput, cmd = m.durationInput.Update(msg)
-			if m.inputError != "" {
-				m.inputError = ""
+		if m.mode == "help" {
+			if key == "esc" {
+				return m.closeHelp(true)
 			}
-			return m, cmd
+			if key == "ctrl+c" || key == "q" {
+				if m.helpReturnMode == "timer" && m.seconds > 0 {
+					m.saveSession()
+				}
+				return m, tea.Quit
+			}
+			restored, restoreCmd := m.closeHelp(false)
+			updated, cmd := restored.handleKeyMsg(msg)
+			return updated, tea.Batch(restoreCmd, cmd)
 		}
+
+		return m.handleKeyMsg(msg)
 	}
 
 	return m, nil
@@ -305,6 +218,163 @@ func (m model) setInputFocus(field int) model {
 		m.textInput.Blur()
 	}
 	return m
+}
+
+func (m model) openHelp() model {
+	m.helpReturnMode = m.mode
+	m.helpWasRunning = m.running
+	if m.running && (m.mode == "timer" || m.mode == "break") {
+		m.running = false
+	}
+	m.mode = "help"
+	return m
+}
+
+func (m model) closeHelp(resume bool) (model, tea.Cmd) {
+	m.mode = m.helpReturnMode
+	if m.mode == "timer" || m.mode == "break" {
+		if resume && m.helpWasRunning {
+			m.running = true
+			if m.seconds > 0 {
+				return m, tickCmd()
+			}
+		} else {
+			m.running = false
+		}
+	}
+	return m, nil
+}
+
+func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	key := msg.String()
+
+	switch key {
+	case "ctrl+c", "q":
+		if m.mode == "timer" && m.seconds > 0 {
+			m.saveSession()
+		}
+		return m, tea.Quit
+
+	case "tab":
+		if m.mode == "input" {
+			if m.focusedField == focusTask {
+				m = m.setInputFocus(focusDuration)
+			} else {
+				m = m.setInputFocus(focusTask)
+			}
+			return m, nil
+		}
+		if m.mode == "timer" || m.mode == "break" {
+			m.mode = "stats"
+			return m, nil
+		}
+		if m.mode == "stats" {
+			m.mode = "timer"
+			return m, nil
+		}
+
+	case "enter":
+		if m.mode == "input" {
+			if strings.TrimSpace(m.textInput.Value()) == "" {
+				m.inputError = "Task name is required."
+				return m, nil
+			}
+			durationSeconds, err := parseDurationInput(m.durationInput.Value())
+			if err != nil {
+				m.inputError = err.Error()
+				return m, nil
+			}
+			m.mode = "timer"
+			m.taskName = strings.TrimSpace(m.textInput.Value())
+			m.textInput.Blur()
+			m.durationInput.Blur()
+			m.sessionStart = time.Now()
+			m.running = true
+			m.sessionTarget = durationSeconds
+			m.seconds = durationSeconds
+			m.sessionElapsed = 0
+			m.inputError = ""
+			return m, tickCmd()
+		}
+
+		if m.mode == "edit" {
+			durationSeconds, err := parseDurationInput(m.durationInput.Value())
+			if err != nil {
+				m.inputError = err.Error()
+				return m, nil
+			}
+			if durationSeconds <= m.sessionElapsed {
+				m.inputError = "Duration must be greater than elapsed time."
+				return m, nil
+			}
+			m.sessionTarget = durationSeconds
+			m.seconds = durationSeconds - m.sessionElapsed
+			m.mode = m.editReturnMode
+			m.inputError = ""
+			if m.editWasRunning && m.seconds > 0 {
+				m.running = true
+				return m, tickCmd()
+			}
+			return m, nil
+		}
+
+		if m.mode == "timer" || m.mode == "break" {
+			return m.completeSession()
+		}
+	case " ", "space":
+		if m.mode == "timer" || m.mode == "break" {
+			m.running = !m.running
+			if m.running && m.seconds > 0 {
+				return m, tickCmd()
+			}
+			return m, nil
+		}
+	case "e":
+		if m.mode == "timer" || m.mode == "break" {
+			m.editReturnMode = m.mode
+			m.editWasRunning = m.running
+			m.running = false
+			m.mode = "edit"
+			m.durationInput.SetValue(formatDurationInput(m.sessionTarget))
+			m.durationInput.Focus()
+			m.textInput.Blur()
+			m.inputError = ""
+			return m, nil
+		}
+	case "esc":
+		if m.mode == "edit" {
+			m.mode = m.editReturnMode
+			m.inputError = ""
+			if m.editWasRunning && m.seconds > 0 {
+				m.running = true
+				return m, tickCmd()
+			}
+			return m, nil
+		}
+	}
+
+	if m.mode == "input" {
+		if m.focusedField == focusTask {
+			m.textInput, cmd = m.textInput.Update(msg)
+		} else {
+			m.durationInput, cmd = m.durationInput.Update(msg)
+		}
+		if m.inputError != "" {
+			m.inputError = ""
+		}
+		return m, cmd
+	}
+
+	if m.mode == "edit" {
+		m.durationInput, cmd = m.durationInput.Update(msg)
+		if m.inputError != "" {
+			m.inputError = ""
+		}
+		return m, cmd
+	}
+
+	return m, nil
 }
 
 func (m model) completeSession() (tea.Model, tea.Cmd) {
@@ -391,7 +461,18 @@ func centerBlock(width int, content string) string {
 	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(content)
 }
 
-func (m model) saveSession() {
+func (m *model) setAppError(err error, context string) {
+	if err == nil {
+		return
+	}
+	if context == "" {
+		m.appError = err.Error()
+		return
+	}
+	m.appError = fmt.Sprintf("%s: %v", context, err)
+}
+
+func (m *model) saveSession() {
 	duration := m.sessionElapsed
 	sessionType := "work"
 	if m.mode == "break" {
@@ -409,28 +490,28 @@ func (m model) saveSession() {
 	var entries []Entry
 	if data, err := os.ReadFile(m.dataFile); err == nil {
 		if err := json.Unmarshal(data, &entries); err != nil {
-			fmt.Fprintln(os.Stderr, "Kairu: failed to parse entries:", err)
+			m.setAppError(err, "Failed to parse entries")
 			return
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintln(os.Stderr, "Kairu: failed to read entries:", err)
+		m.setAppError(err, "Failed to read entries")
 		return
 	}
 	entries = append(entries, entry)
 	fileData, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Kairu: failed to encode entries:", err)
+		m.setAppError(err, "Failed to encode entries")
 		return
 	}
 	if err := os.WriteFile(m.dataFile, fileData, 0644); err != nil {
-		fmt.Fprintln(os.Stderr, "Kairu: failed to write entries:", err)
+		m.setAppError(err, "Failed to write entries")
 		return
 	}
 	m.entries = entries
 
 	if m.config.Notifications {
 		if err := m.sendNotification(sessionType); err != nil {
-			fmt.Fprintln(os.Stderr, "Kairu:", err)
+			m.setAppError(err, "Notification failed")
 		}
 	}
 }
@@ -501,9 +582,30 @@ func (m model) View() string {
 		return renderEditView(m)
 	case "stats":
 		return renderStatsView(m)
+	case "help":
+		return renderHelpView(m)
+	case "fatal":
+		return renderFatalView(m)
 	default:
 		return renderInputView(m)
 	}
+}
+
+func joinNonEmptyLines(lines ...string) string {
+	trimmed := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			trimmed = append(trimmed, line)
+		}
+	}
+	return strings.Join(trimmed, "\n")
+}
+
+func renderAppError(m model) string {
+	if strings.TrimSpace(m.appError) == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.appError)
 }
 
 func renderInputView(m model) string {
@@ -511,6 +613,7 @@ func renderInputView(m model) string {
 	if m.inputError != "" {
 		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.inputError)
 	}
+	errorBlock := joinNonEmptyLines(errorLine, renderAppError(m))
 	return fmt.Sprintf(`
 ╭─────────────────────────────────────╮
 │  📝  What are you working on?      │
@@ -522,8 +625,8 @@ func renderInputView(m model) string {
 
 %s
 
-[Tab] Switch Field   [Enter] Start   [q] Quit
-`, m.textInput.View(), m.durationInput.View(), errorLine)
+[Tab] Switch Field   [Enter] Start   [?] Help   [q] Quit
+`, m.textInput.View(), m.durationInput.View(), errorBlock)
 }
 
 func renderEditView(m model) string {
@@ -531,6 +634,7 @@ func renderEditView(m model) string {
 	if m.inputError != "" {
 		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.inputError)
 	}
+	errorBlock := joinNonEmptyLines(errorLine, renderAppError(m))
 	elapsed := formatClock(m.sessionElapsed)
 	block := fmt.Sprintf(`%s
 
@@ -545,7 +649,7 @@ Elapsed: %s
 
 %s
 
-[Enter] Apply   [Esc] Cancel   [q] Quit`, renderBanner(), m.taskName, elapsed, m.durationInput.View(), errorLine)
+[Enter] Apply   [Esc] Cancel   [?] Help   [q] Quit`, renderBanner(), m.taskName, elapsed, m.durationInput.View(), errorBlock)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
@@ -574,9 +678,9 @@ func renderTimerView(m model) string {
 	empty := barWidth - filled
 	progress := fmt.Sprintf("[%s%s] %.0f%%", strings.Repeat("█", filled), strings.Repeat("░", empty), remainingPct)
 
-	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [q] Quit"
+	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [?] Help  [q] Quit"
 	if !m.running {
-		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [q] Quit"
+		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [?] Help  [q] Quit"
 	}
 
 	header := fmt.Sprintf("%s • %s", modeStr, m.taskName)
@@ -591,11 +695,16 @@ func renderTimerView(m model) string {
 		Padding(0, 1).
 		Render(fmt.Sprintf("%s\n\n%s", ascii, progress))
 
+	errorLine := renderAppError(m)
+	details := hint
+	if errorLine != "" {
+		details = fmt.Sprintf("%s\n%s", errorLine, hint)
+	}
 	block := fmt.Sprintf(`%s
 
 %s
 
-%s`, header, timerFrame, hint)
+%s`, header, timerFrame, details)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
@@ -638,6 +747,11 @@ func renderStatsView(m model) string {
 	if total > 0 {
 		workRatio = m.totalWorkTime * 100 / total
 	}
+	footer := "[Tab] Back   [?] Help   [q] Quit"
+	errorLine := renderAppError(m)
+	if errorLine != "" {
+		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
 
 	return fmt.Sprintf(`
 ╭─────────────────────────────────────╮
@@ -665,8 +779,73 @@ Weekly Activity (7 days):
 
 %s
 
-[Tab] Back   [q] Quit
-`, daily, current, longest, workRatio, 100-workRatio, barChart)
+%s
+`, daily, current, longest, workRatio, 100-workRatio, barChart, footer)
+}
+
+func renderHelpView(m model) string {
+	footer := "[?] Close   [Esc] Close   [q] Quit"
+	errorLine := renderAppError(m)
+	if errorLine != "" {
+		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
+	lines := []string{
+		"Timer pauses while help is open.",
+		"",
+		"Global:",
+		formatHelpLine("?", "Toggle help"),
+		formatHelpLine("q", "Quit"),
+		"",
+		"Input mode:",
+		formatHelpLine("Tab", "Switch field"),
+		formatHelpLine("Enter", "Start session"),
+		"",
+		"Timer/Break:",
+		formatHelpLine("Space", "Pause/Resume"),
+		formatHelpLine("E", "Edit time"),
+		formatHelpLine("Enter", "End session"),
+		formatHelpLine("Tab", "Stats"),
+		"",
+		"Edit:",
+		formatHelpLine("Enter", "Apply"),
+		formatHelpLine("Esc", "Cancel"),
+		"",
+		"Stats:",
+		formatHelpLine("Tab", "Back"),
+		"",
+	}
+	body := strings.Join(lines, "\n")
+	block := fmt.Sprintf(`%s
+
+╭─────────────────────────────────────╮
+│  Help                               │
+╰─────────────────────────────────────╯
+
+%s
+
+%s`, renderBanner(), body, footer)
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
+
+func formatHelpLine(key, description string) string {
+	return fmt.Sprintf("  %-8s %s", key, description)
+}
+
+func renderFatalView(m model) string {
+	message := strings.TrimSpace(m.appError)
+	if message == "" {
+		message = "Failed to start due to an unexpected error."
+	}
+	block := fmt.Sprintf(`%s
+
+╭─────────────────────────────────────╮
+│  Startup Error                      │
+╰─────────────────────────────────────╯
+
+%s
+
+[q] Quit`, renderBanner(), message)
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func getWeeklyData(entries []Entry) map[string]int {
@@ -797,13 +976,15 @@ func renderBanner() string {
 
 func main() {
 	dataFile := "entries.json"
+	startupErrors := []string{}
 	if err := loadEnvFile(".env"); err != nil {
-		fmt.Fprintln(os.Stderr, "Kairu: failed to load .env:", err)
+		startupErrors = append(startupErrors, fmt.Sprintf("Failed to load .env: %v", err))
 	}
 	cfg, err := loadConfig("kairu.yaml")
+	fatalConfig := false
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Kairu: failed to load config:", err)
-		os.Exit(1)
+		startupErrors = append(startupErrors, fmt.Sprintf("Failed to load config: %v", err))
+		fatalConfig = true
 	}
 	ti := textinput.New()
 	ti.Placeholder = "Task name"
@@ -823,20 +1004,25 @@ func main() {
 	var entryList []Entry
 	if data, err := os.ReadFile(dataFile); err == nil {
 		if err := json.Unmarshal(data, &entryList); err != nil {
-			fmt.Fprintln(os.Stderr, "Kairu: failed to parse entries:", err)
+			startupErrors = append(startupErrors, fmt.Sprintf("Failed to parse entries: %v", err))
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintln(os.Stderr, "Kairu: failed to read entries:", err)
+		startupErrors = append(startupErrors, fmt.Sprintf("Failed to read entries: %v", err))
+	}
+	mode := "input"
+	if fatalConfig {
+		mode = "fatal"
 	}
 
 	m := model{
-		mode:          "input",
+		mode:          mode,
 		textInput:     ti,
 		durationInput: di,
 		focusedField:  focusTask,
 		entries:       entryList,
 		dataFile:      dataFile,
 		config:        cfg,
+		appError:      strings.Join(startupErrors, " | "),
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
