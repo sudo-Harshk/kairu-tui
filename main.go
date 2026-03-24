@@ -197,9 +197,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Quit
 			}
-			restored, restoreCmd := m.closeHelp(false)
-			updated, cmd := restored.handleKeyMsg(msg)
-			return updated, tea.Batch(restoreCmd, cmd)
+			// Keep the help screen modal so timer shortcuts don't fire underneath it.
+			return m, nil
 		}
 
 		return m.handleKeyMsg(msg)
@@ -814,7 +813,7 @@ func renderHelpView(m model) string {
 		formatHelpLine("Tab", "Back"),
 		"",
 	}
-	body := strings.Join(lines, "\n")
+	body := lipgloss.NewStyle().Width(35).Render(strings.Join(lines, "\n"))
 	block := fmt.Sprintf(`%s
 
 ╭─────────────────────────────────────╮
