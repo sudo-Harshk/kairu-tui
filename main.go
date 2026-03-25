@@ -35,6 +35,8 @@ type Config struct {
 	NotifySessionEnd     bool   `yaml:"notify_session_end"`
 	NotifyPauseResume    bool   `yaml:"notify_pause_resume"`
 	NotifyEndingSoon     bool   `yaml:"notify_ending_soon"`
+	QuietHoursStart      int    `yaml:"quiet_hours_start"`
+	QuietHoursEnd        int    `yaml:"quiet_hours_end"`
 	SoundCommand         string `yaml:"sound_command"`
 	AutoBreak            bool   `yaml:"auto_break"`
 	SessionsBeforeBreak  int    `yaml:"sessions_before_break"`
@@ -54,6 +56,8 @@ var defaultConfig = Config{
 	NotifySessionEnd:     false,
 	NotifyPauseResume:    false,
 	NotifyEndingSoon:     false,
+	QuietHoursStart:      -1,
+	QuietHoursEnd:        -1,
 	SoundCommand:         "",
 	AutoBreak:            false,
 	SessionsBeforeBreak:  4,
@@ -121,6 +125,7 @@ type model struct {
 	focusedField       int
 	inputError         string
 	appError           string
+	notificationStatus string
 	taskName           string
 	entries            []Entry
 	dataFile           string
@@ -506,6 +511,10 @@ func (m *model) setAppError(err error, context string) {
 	m.appError = fmt.Sprintf("%s: %v", context, err)
 }
 
+func (m *model) setNotificationStatus(status string) {
+	m.notificationStatus = status
+}
+
 func defaultOutboxFile() string { return "notification_outbox.json" }
 
 func loadNotificationOutbox(path string) ([]notificationJob, error) {
@@ -564,6 +573,19 @@ func (m model) eventEnabled(event string) bool {
 	}
 }
 
+func (m model) quietHoursActive(now time.Time) bool {
+	start := m.config.QuietHoursStart
+	end := m.config.QuietHoursEnd
+	if start < 0 || start > 23 || end < 0 || end > 23 || start == end {
+		return false
+	}
+	hour := now.Hour()
+	if start < end {
+		return hour >= start && hour < end
+	}
+	return hour >= start || hour < end
+}
+
 func (m model) notificationTitle(event string) string {
 	switch event {
 	case "work_complete":
@@ -612,6 +634,10 @@ func (m model) notify(event string) {
 	if !m.config.Notifications || !m.eventEnabled(event) {
 		return
 	}
+	if m.quietHoursActive(time.Now()) {
+		m.setNotificationStatus("Notification suppressed by quiet hours")
+		return
+	}
 
 	title := m.notificationTitle(event)
 	body := m.notificationBody(event)
@@ -619,11 +645,34 @@ func (m model) notify(event string) {
 		return
 	}
 
+	if err := m.sendNotificationWithFallback(title, body); err != nil {
+		m.setAppError(err, "Notification failed")
+	}
+}
+
+func (m model) sendNotificationWithFallback(title, body string) error {
 	if m.config.DesktopNotifications {
-		if err := sendDesktopNotification(title, body); err != nil {
-			m.setAppError(err, "Desktop notification failed")
+		if err := sendDesktopNotification(title, body); err == nil {
+			m.setNotificationStatus("Desktop notification delivered")
+			return nil
 		}
 	}
+
+	if m.config.SoundCommand != "" {
+		if err := exec.Command("sh", "-c", m.config.SoundCommand).Run(); err == nil {
+			m.setNotificationStatus("Sound fallback delivered")
+			return nil
+		}
+	}
+
+	if token := strings.TrimSpace(m.config.TelegramBotToken); token != "" && strings.TrimSpace(m.config.TelegramChatID) != "" {
+		if err := sendTelegramMessage(token, strings.TrimSpace(m.config.TelegramChatID), body); err == nil {
+			m.setNotificationStatus("Telegram fallback delivered")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("all notification channels failed")
 }
 
 func sendDesktopNotification(title, body string) error {
@@ -678,6 +727,7 @@ func (m *model) flushNotificationOutbox() {
 			remaining = append(remaining, job)
 			continue
 		}
+		m.setNotificationStatus("Notification queue delivered")
 	}
 	m.notificationOutbox = remaining
 	if err := saveNotificationOutbox(m.outboxFile, m.notificationOutbox); err != nil {
@@ -835,6 +885,13 @@ func renderAppError(m model) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.appError)
 }
 
+func renderNotificationStatus(m model) string {
+	if strings.TrimSpace(m.notificationStatus) == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(m.notificationStatus)
+}
+
 func renderInputView(m model) string {
 	errorLine := ""
 	if m.inputError != "" {
@@ -923,9 +980,13 @@ func renderTimerView(m model) string {
 		Render(fmt.Sprintf("%s\n\n%s", ascii, progress))
 
 	errorLine := renderAppError(m)
+	statusLine := renderNotificationStatus(m)
 	details := hint
 	if errorLine != "" {
 		details = fmt.Sprintf("%s\n%s", errorLine, hint)
+	}
+	if statusLine != "" {
+		details = fmt.Sprintf("%s\n%s", details, statusLine)
 	}
 	block := fmt.Sprintf(`%s
 

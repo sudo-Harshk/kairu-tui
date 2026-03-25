@@ -14,6 +14,8 @@ YAML (kairu.yaml):
 - notify_session_end (bool) — notify when a session is ended manually
 - notify_pause_resume (bool) — notify when the timer is paused or resumed
 - notify_ending_soon (bool) — notify when a session is almost done
+- quiet_hours_start (int) — optional hour in 24h format when notifications should stop
+- quiet_hours_end (int) — optional hour in 24h format when notifications should resume
 - sound_command (string) — optional shell command to play a sound after notification
 - auto_break (bool) — suggest a break automatically after N sessions
 - sessions_before_break (int) — default 4
@@ -29,6 +31,7 @@ Override rules:
 Storage:
 - entries.json stores session history in JSON array form
 - notification_outbox.json stores pending notification retries
+- Quiet hours are disabled when start/end are unset or invalid
 
 Keyboard:
 - Tab switches views/fields

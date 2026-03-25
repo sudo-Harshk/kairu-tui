@@ -41,6 +41,8 @@ notify_session_start: false
 notify_session_end: false
 notify_pause_resume: false
 notify_ending_soon: false
+quiet_hours_start: -1
+quiet_hours_end: -1
 sound_command: ""
 auto_break: false
 sessions_before_break: 4
