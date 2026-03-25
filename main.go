@@ -91,29 +91,41 @@ func applyEnvOverrides(cfg *Config) {
 }
 
 type model struct {
-	seconds        int
-	sessionTarget  int
-	sessionElapsed int
-	width          int
-	running        bool
-	mode           string
-	editReturnMode string
-	editWasRunning bool
-	helpReturnMode string
-	helpWasRunning bool
-	textInput      textinput.Model
-	durationInput  textinput.Model
-	focusedField   int
-	inputError     string
-	appError       string
-	taskName       string
-	entries        []Entry
-	dataFile       string
-	config         Config
-	sessionStart   time.Time
-	sessionCount   int
-	totalWorkTime  int
-	totalBreakTime int
+	seconds            int
+	sessionTarget      int
+	sessionElapsed     int
+	width              int
+	running            bool
+	mode               string
+	editReturnMode     string
+	editWasRunning     bool
+	helpReturnMode     string
+	helpWasRunning     bool
+	textInput          textinput.Model
+	durationInput      textinput.Model
+	focusedField       int
+	inputError         string
+	appError           string
+	taskName           string
+	entries            []Entry
+	dataFile           string
+	config             Config
+	sessionStart       time.Time
+	sessionCount       int
+	totalWorkTime      int
+	totalBreakTime     int
+	notificationOutbox []notificationJob
+	outboxFile         string
+}
+
+type notificationJob struct {
+	ID          string    `json:"id"`
+	SessionType string    `json:"session_type"`
+	Task        string    `json:"task"`
+	Duration    int       `json:"duration_seconds"`
+	CreatedAt   time.Time `json:"created_at"`
+	Attempts    int       `json:"attempts"`
+	LastError   string    `json:"last_error,omitempty"`
 }
 
 type Entry struct {
@@ -471,6 +483,95 @@ func (m *model) setAppError(err error, context string) {
 	m.appError = fmt.Sprintf("%s: %v", context, err)
 }
 
+func defaultOutboxFile() string { return "notification_outbox.json" }
+
+func loadNotificationOutbox(path string) ([]notificationJob, error) {
+	var jobs []notificationJob
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return jobs, nil
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+func saveNotificationOutbox(path string, jobs []notificationJob) error {
+	data, err := json.MarshalIndent(jobs, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func newNotificationJob(sessionType, task string, duration int) notificationJob {
+	return notificationJob{
+		ID:          fmt.Sprintf("%d-%s", time.Now().UnixNano(), sessionType),
+		SessionType: sessionType,
+		Task:        task,
+		Duration:    duration,
+		CreatedAt:   time.Now(),
+	}
+}
+
+func (j notificationJob) message() string {
+	return fmt.Sprintf("Session completed: %s (%s)", j.Task, formatDuration(j.Duration))
+}
+
+func (m *model) flushNotificationOutbox() {
+	if !m.config.Notifications || len(m.notificationOutbox) == 0 {
+		return
+	}
+
+	remaining := make([]notificationJob, 0, len(m.notificationOutbox))
+	for _, job := range m.notificationOutbox {
+		if err := m.sendNotificationJob(job); err != nil {
+			job.Attempts++
+			job.LastError = err.Error()
+			remaining = append(remaining, job)
+			continue
+		}
+	}
+	m.notificationOutbox = remaining
+	if err := saveNotificationOutbox(m.outboxFile, m.notificationOutbox); err != nil {
+		m.setAppError(err, "Failed to save notification queue")
+	}
+}
+
+func (m model) sendNotificationJob(job notificationJob) error {
+	if job.SessionType != "work" {
+		return nil
+	}
+	token := strings.TrimSpace(m.config.TelegramBotToken)
+	chatID := strings.TrimSpace(m.config.TelegramChatID)
+	if token == "" || chatID == "" {
+		return fmt.Errorf("telegram notifications require %s and %s", envTelegramBotToken, envTelegramChatID)
+	}
+
+	var lastErr error
+	backoffs := []time.Duration{0, 2 * time.Second, 5 * time.Second}
+	for attempt := 0; attempt < len(backoffs); attempt++ {
+		if backoffs[attempt] > 0 {
+			time.Sleep(backoffs[attempt])
+		}
+		if err := sendTelegramMessage(token, chatID, job.message()); err != nil {
+			lastErr = err
+			continue
+		}
+		if m.config.SoundCommand != "" {
+			if err := exec.Command("sh", "-c", m.config.SoundCommand).Run(); err != nil {
+				return fmt.Errorf("sound command failed: %w", err)
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("telegram send failed after retries: %w", lastErr)
+}
+
 func (m *model) saveSession() {
 	duration := m.sessionElapsed
 	sessionType := "work"
@@ -509,33 +610,17 @@ func (m *model) saveSession() {
 	m.entries = entries
 
 	if m.config.Notifications {
-		if err := m.sendNotification(sessionType); err != nil {
-			m.setAppError(err, "Notification failed")
+		job := newNotificationJob(sessionType, m.taskName, duration)
+		m.notificationOutbox = append(m.notificationOutbox, job)
+		if err := saveNotificationOutbox(m.outboxFile, m.notificationOutbox); err != nil {
+			m.setAppError(err, "Failed to save notification queue")
+			return
+		}
+		m.flushNotificationOutbox()
+		if len(m.notificationOutbox) > 0 {
+			m.setAppError(fmt.Errorf("%s", m.notificationOutbox[0].LastError), "Notification queued for retry")
 		}
 	}
-}
-
-func (m model) sendNotification(sessionType string) error {
-	if sessionType != "work" {
-		return nil
-	}
-	token := strings.TrimSpace(m.config.TelegramBotToken)
-	chatID := strings.TrimSpace(m.config.TelegramChatID)
-	if token == "" || chatID == "" {
-		return fmt.Errorf("telegram notifications require %s and %s", envTelegramBotToken, envTelegramChatID)
-	}
-
-	msg := fmt.Sprintf("Session completed: %s (%s)", m.taskName, formatDuration(m.sessionElapsed))
-	if err := sendTelegramMessage(token, chatID, msg); err != nil {
-		return err
-	}
-
-	if m.config.SoundCommand != "" {
-		if err := exec.Command("sh", "-c", m.config.SoundCommand).Run(); err != nil {
-			return fmt.Errorf("sound command failed: %w", err)
-		}
-	}
-	return nil
 }
 
 func sendTelegramMessage(token, chatID, text string) error {
@@ -1022,6 +1107,15 @@ func main() {
 		dataFile:      dataFile,
 		config:        cfg,
 		appError:      strings.Join(startupErrors, " | "),
+		outboxFile:    defaultOutboxFile(),
+	}
+
+	if jobs, err := loadNotificationOutbox(m.outboxFile); err == nil {
+		m.notificationOutbox = jobs
+		m.flushNotificationOutbox()
+	} else {
+		startupErrors = append(startupErrors, fmt.Sprintf("Failed to read notification queue: %v", err))
+		m.appError = strings.Join(startupErrors, " | ")
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
