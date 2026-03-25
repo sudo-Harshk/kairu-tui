@@ -127,8 +127,10 @@ type model struct {
 	appError           string
 	notificationStatus string
 	taskName           string
+	settingsCursor     int
 	entries            []Entry
 	dataFile           string
+	configFile         string
 	config             Config
 	sessionStart       time.Time
 	sessionCount       int
@@ -161,6 +163,19 @@ type tickTockMsg time.Time
 const (
 	focusTask = iota
 	focusDuration
+)
+
+const (
+	settingsDesktop = iota
+	settingsWorkComplete
+	settingsBreakComplete
+	settingsSessionStart
+	settingsSessionEnd
+	settingsPauseResume
+	settingsEndingSoon
+	settingsQuietStart
+	settingsQuietEnd
+	settingsCount
 )
 
 func tickCmd() tea.Cmd {
@@ -238,6 +253,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.mode == "settings" {
+			switch key {
+			case "tab":
+				m.settingsCursor = (m.settingsCursor + 1) % settingsCount
+				return m, nil
+			case "shift+tab":
+				m.settingsCursor--
+				if m.settingsCursor < 0 {
+					m.settingsCursor = settingsCount - 1
+				}
+				return m, nil
+			case "enter", " ", "space":
+				m.toggleSetting()
+				return m, nil
+			case "left", "h":
+				m.adjustSetting(-1)
+				return m, nil
+			case "right", "l":
+				m.adjustSetting(1)
+				return m, nil
+			case "esc":
+				m.mode = "timer"
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
 		return m.handleKeyMsg(msg)
 	}
 
@@ -302,11 +346,17 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.mode == "timer" || m.mode == "break" {
-			m.mode = "stats"
+			m.mode = "settings"
+			m.settingsCursor = settingsDesktop
 			return m, nil
 		}
 		if m.mode == "stats" {
-			m.mode = "timer"
+			m.mode = "settings"
+			m.settingsCursor = settingsDesktop
+			return m, nil
+		}
+		if m.mode == "settings" {
+			m.mode = "stats"
 			return m, nil
 		}
 
@@ -443,6 +493,50 @@ func (m model) completeSession() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *model) toggleSetting() {
+	switch m.settingsCursor {
+	case settingsDesktop:
+		m.config.DesktopNotifications = !m.config.DesktopNotifications
+	case settingsWorkComplete:
+		m.config.NotifyWorkComplete = !m.config.NotifyWorkComplete
+	case settingsBreakComplete:
+		m.config.NotifyBreakComplete = !m.config.NotifyBreakComplete
+	case settingsSessionStart:
+		m.config.NotifySessionStart = !m.config.NotifySessionStart
+	case settingsSessionEnd:
+		m.config.NotifySessionEnd = !m.config.NotifySessionEnd
+	case settingsPauseResume:
+		m.config.NotifyPauseResume = !m.config.NotifyPauseResume
+	case settingsEndingSoon:
+		m.config.NotifyEndingSoon = !m.config.NotifyEndingSoon
+	}
+	if err := saveConfigFile(m.configFile, m.config); err != nil {
+		m.setAppError(err, "Failed to save config")
+	}
+}
+
+func (m *model) adjustSetting(delta int) {
+	switch m.settingsCursor {
+	case settingsQuietStart:
+		m.config.QuietHoursStart = wrapHour(m.config.QuietHoursStart + delta)
+	case settingsQuietEnd:
+		m.config.QuietHoursEnd = wrapHour(m.config.QuietHoursEnd + delta)
+	}
+	if err := saveConfigFile(m.configFile, m.config); err != nil {
+		m.setAppError(err, "Failed to save config")
+	}
+}
+
+func wrapHour(hour int) int {
+	if hour < 0 {
+		return 23
+	}
+	if hour > 23 {
+		return 0
+	}
+	return hour
+}
+
 func parseDurationInput(input string) (int, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
@@ -534,6 +628,14 @@ func loadNotificationOutbox(path string) ([]notificationJob, error) {
 
 func saveNotificationOutbox(path string, jobs []notificationJob) error {
 	data, err := json.MarshalIndent(jobs, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func saveConfigFile(path string, cfg Config) error {
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
@@ -859,6 +961,8 @@ func (m model) View() string {
 		return renderEditView(m)
 	case "stats":
 		return renderStatsView(m)
+	case "settings":
+		return renderSettingsView(m)
 	case "help":
 		return renderHelpView(m)
 	case "fatal":
@@ -1069,6 +1173,63 @@ Weekly Activity (7 days):
 
 %s
 `, daily, current, longest, workRatio, 100-workRatio, barChart, footer)
+}
+
+func renderSettingsView(m model) string {
+	footer := "[Tab] Switch   [Space] Toggle   [Left/Right] Quiet hours   [Esc] Back   [q] Quit"
+	errorLine := renderAppError(m)
+	statusLine := renderNotificationStatus(m)
+	if errorLine != "" {
+		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
+	if statusLine != "" {
+		footer = fmt.Sprintf("%s\n%s", statusLine, footer)
+	}
+
+	items := []string{
+		renderSettingLine(m.settingsCursor == settingsDesktop, "Desktop notifications", boolLabel(m.config.DesktopNotifications)),
+		renderSettingLine(m.settingsCursor == settingsWorkComplete, "Work complete", boolLabel(m.config.NotifyWorkComplete)),
+		renderSettingLine(m.settingsCursor == settingsBreakComplete, "Break complete", boolLabel(m.config.NotifyBreakComplete)),
+		renderSettingLine(m.settingsCursor == settingsSessionStart, "Session start", boolLabel(m.config.NotifySessionStart)),
+		renderSettingLine(m.settingsCursor == settingsSessionEnd, "Session end", boolLabel(m.config.NotifySessionEnd)),
+		renderSettingLine(m.settingsCursor == settingsPauseResume, "Pause/resume", boolLabel(m.config.NotifyPauseResume)),
+		renderSettingLine(m.settingsCursor == settingsEndingSoon, "Ending soon", boolLabel(m.config.NotifyEndingSoon)),
+		renderSettingLine(m.settingsCursor == settingsQuietStart, "Quiet start", hourLabel(m.config.QuietHoursStart)),
+		renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd)),
+	}
+
+	block := fmt.Sprintf(`%s
+
+╭─────────────────────────────────────╮
+│  Notification Settings              │
+╰─────────────────────────────────────╯
+
+%s
+
+%s`, renderBanner(), strings.Join(items, "\n"), footer)
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
+
+func renderSettingLine(selected bool, label, value string) string {
+	prefix := "  "
+	if selected {
+		prefix = "> "
+	}
+	return fmt.Sprintf("%s%-22s %s", prefix, label, value)
+}
+
+func boolLabel(enabled bool) string {
+	if enabled {
+		return "on"
+	}
+	return "off"
+}
+
+func hourLabel(hour int) string {
+	if hour < 0 {
+		return "off"
+	}
+	return fmt.Sprintf("%02d:00", hour)
 }
 
 func renderHelpView(m model) string {
@@ -1309,6 +1470,7 @@ func main() {
 		focusedField:  focusTask,
 		entries:       entryList,
 		dataFile:      dataFile,
+		configFile:    "kairu.yaml",
 		config:        cfg,
 		appError:      strings.Join(startupErrors, " | "),
 		outboxFile:    defaultOutboxFile(),

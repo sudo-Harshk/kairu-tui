@@ -59,3 +59,9 @@ Windows notes:
 - Use PowerShell or Windows Terminal
 - Desktop notifications use a PowerShell toast fallback on Windows
 - Sound command executes via sh -c; leave empty on Windows or use a compatible shell
+
+In-app settings:
+- Press Tab from the timer or stats screen to open the notification settings panel
+- Use Space to toggle booleans
+- Use Left/Right to change quiet hours
+- Changes save automatically to kairu.yaml
