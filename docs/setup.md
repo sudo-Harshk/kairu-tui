@@ -34,6 +34,13 @@ work_duration: 25
 break_duration: 5
 font: ansi
 notifications: false
+desktop_notifications: true
+notify_work_complete: true
+notify_break_complete: true
+notify_session_start: false
+notify_session_end: false
+notify_pause_resume: false
+notify_ending_soon: false
 sound_command: ""
 auto_break: false
 sessions_before_break: 4
@@ -48,5 +55,5 @@ KAIRU_TELEGRAM_CHAT_ID=your_chat_id
 
 Windows notes:
 - Use PowerShell or Windows Terminal
+- Desktop notifications use a PowerShell toast fallback on Windows
 - Sound command executes via sh -c; leave empty on Windows or use a compatible shell
-

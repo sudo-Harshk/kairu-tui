@@ -3,6 +3,7 @@ go.sum
 kairu-tui
 kairu-tui.exe
 entries.json
+notification_outbox.json
 kairu.yaml
 .env
 .env.*

@@ -7,7 +7,7 @@ A TUI time tracker inspired by Pomodoro technique with ASCII art timer and activ
 - **ASCII Art Timer** - Large, beautiful digital display
 - **Custom Session Duration** - Set time per session (mm or hh:mm)
 - **Weekly Bar Chart** - Visualize your 7-day activity
-- **Telegram Notifications** - Get notified on your phone when work sessions end
+- **Desktop Notifications** - Get notified locally when sessions start, end, or finish
 - **Keyboard Controls** - Use Tab to switch fields, Space to pause, E to edit time
 - **Help Overlay** - Press ? to view keybindings anytime
 - **In-app Error Messages** - Runtime issues surface inside the UI
@@ -50,12 +50,19 @@ work_duration: 25
 break_duration: 5
 font: ansi
 notifications: false
+desktop_notifications: true
+notify_work_complete: true
+notify_break_complete: true
+notify_session_start: false
+notify_session_end: false
+notify_pause_resume: false
+notify_ending_soon: false
 sound_command: ""
 auto_break: false
 sessions_before_break: 4
 ```
 
-Environment variables (optional):
+Environment variables for Telegram delivery only (optional):
 
 ```bash
 KAIRU_TELEGRAM_BOT_TOKEN=your_bot_token

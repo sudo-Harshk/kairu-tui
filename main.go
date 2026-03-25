@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,27 +24,41 @@ import (
 
 // Configuration (loaded from YAML/env with defaults)
 type Config struct {
-	WorkDuration        int    `yaml:"work_duration"`
-	BreakDuration       int    `yaml:"break_duration"`
-	Font                string `yaml:"font"`
-	Notifications       bool   `yaml:"notifications"`
-	SoundCommand        string `yaml:"sound_command"`
-	AutoBreak           bool   `yaml:"auto_break"`
-	SessionsBeforeBreak int    `yaml:"sessions_before_break"`
-	TelegramBotToken    string `yaml:"-"`
-	TelegramChatID      string `yaml:"-"`
+	WorkDuration         int    `yaml:"work_duration"`
+	BreakDuration        int    `yaml:"break_duration"`
+	Font                 string `yaml:"font"`
+	Notifications        bool   `yaml:"notifications"`
+	DesktopNotifications bool   `yaml:"desktop_notifications"`
+	NotifyWorkComplete   bool   `yaml:"notify_work_complete"`
+	NotifyBreakComplete  bool   `yaml:"notify_break_complete"`
+	NotifySessionStart   bool   `yaml:"notify_session_start"`
+	NotifySessionEnd     bool   `yaml:"notify_session_end"`
+	NotifyPauseResume    bool   `yaml:"notify_pause_resume"`
+	NotifyEndingSoon     bool   `yaml:"notify_ending_soon"`
+	SoundCommand         string `yaml:"sound_command"`
+	AutoBreak            bool   `yaml:"auto_break"`
+	SessionsBeforeBreak  int    `yaml:"sessions_before_break"`
+	TelegramBotToken     string `yaml:"-"`
+	TelegramChatID       string `yaml:"-"`
 }
 
 var defaultConfig = Config{
-	WorkDuration:        25,
-	BreakDuration:       5,
-	Font:                "ansi",
-	Notifications:       false,
-	SoundCommand:        "",
-	AutoBreak:           false,
-	SessionsBeforeBreak: 4,
-	TelegramBotToken:    "",
-	TelegramChatID:      "",
+	WorkDuration:         25,
+	BreakDuration:        5,
+	Font:                 "ansi",
+	Notifications:        false,
+	DesktopNotifications: true,
+	NotifyWorkComplete:   true,
+	NotifyBreakComplete:  true,
+	NotifySessionStart:   false,
+	NotifySessionEnd:     false,
+	NotifyPauseResume:    false,
+	NotifyEndingSoon:     false,
+	SoundCommand:         "",
+	AutoBreak:            false,
+	SessionsBeforeBreak:  4,
+	TelegramBotToken:     "",
+	TelegramChatID:       "",
 }
 
 const (
@@ -171,6 +186,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if m.seconds == 0 {
+				if m.mode == "timer" {
+					m.notify("work_complete")
+				} else {
+					m.notify("break_complete")
+				}
 				return m.completeSession()
 			}
 			return m, tickCmd()
@@ -306,6 +326,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.seconds = durationSeconds
 			m.sessionElapsed = 0
 			m.inputError = ""
+			m.notify("session_start")
 			return m, tickCmd()
 		}
 
@@ -331,11 +352,13 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.mode == "timer" || m.mode == "break" {
+			m.notify("session_end")
 			return m.completeSession()
 		}
 	case " ", "space":
 		if m.mode == "timer" || m.mode == "break" {
 			m.running = !m.running
+			m.notify("pause_resume")
 			if m.running && m.seconds > 0 {
 				return m, tickCmd()
 			}
@@ -520,6 +543,126 @@ func newNotificationJob(sessionType, task string, duration int) notificationJob 
 
 func (j notificationJob) message() string {
 	return fmt.Sprintf("Session completed: %s (%s)", j.Task, formatDuration(j.Duration))
+}
+
+func (m model) eventEnabled(event string) bool {
+	switch event {
+	case "work_complete":
+		return m.config.NotifyWorkComplete
+	case "break_complete":
+		return m.config.NotifyBreakComplete
+	case "session_start":
+		return m.config.NotifySessionStart
+	case "session_end":
+		return m.config.NotifySessionEnd
+	case "pause_resume":
+		return m.config.NotifyPauseResume
+	case "ending_soon":
+		return m.config.NotifyEndingSoon
+	default:
+		return false
+	}
+}
+
+func (m model) notificationTitle(event string) string {
+	switch event {
+	case "work_complete":
+		return "Work session complete"
+	case "break_complete":
+		return "Break complete"
+	case "session_start":
+		return "Session started"
+	case "session_end":
+		return "Session ended"
+	case "pause_resume":
+		if m.running {
+			return "Session resumed"
+		}
+		return "Session paused"
+	case "ending_soon":
+		return "Session ending soon"
+	default:
+		return "Kairu"
+	}
+}
+
+func (m model) notificationBody(event string) string {
+	switch event {
+	case "work_complete":
+		return fmt.Sprintf("%s completed in %s", m.taskName, formatDuration(m.sessionElapsed))
+	case "break_complete":
+		return "Break is over. Ready to focus again?"
+	case "session_start":
+		return fmt.Sprintf("Focus session started: %s", m.taskName)
+	case "session_end":
+		return fmt.Sprintf("Session ended: %s", m.taskName)
+	case "pause_resume":
+		if m.running {
+			return "Focus timer resumed."
+		}
+		return "Focus timer paused."
+	case "ending_soon":
+		return fmt.Sprintf("Only %s left in this session.", formatDuration(m.seconds))
+	default:
+		return ""
+	}
+}
+
+func (m model) notify(event string) {
+	if !m.config.Notifications || !m.eventEnabled(event) {
+		return
+	}
+
+	title := m.notificationTitle(event)
+	body := m.notificationBody(event)
+	if body == "" {
+		return
+	}
+
+	if m.config.DesktopNotifications {
+		if err := sendDesktopNotification(title, body); err != nil {
+			m.setAppError(err, "Desktop notification failed")
+		}
+	}
+}
+
+func sendDesktopNotification(title, body string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		script := fmt.Sprintf(`display notification %q with title %q`, body, title)
+		return exec.Command("osascript", "-e", script).Run()
+	case "linux":
+		if err := exec.Command("notify-send", title, body).Run(); err == nil {
+			return nil
+		}
+		return exec.Command("sh", "-c", fmt.Sprintf("printf '\\a'; printf '%s: %s\\n'", shellEscape(title), shellEscape(body))).Run()
+	case "windows":
+		script := fmt.Sprintf(`
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$notify = New-Object System.Windows.Forms.NotifyIcon
+$notify.Icon = [System.Drawing.SystemIcons]::Information
+$notify.BalloonTipTitle = '%s'
+$notify.BalloonTipText = '%s'
+$notify.Visible = $true
+$notify.ShowBalloonTip(4000)
+Start-Sleep -Milliseconds 4500
+$notify.Dispose()
+`, psEscape(title), psEscape(body))
+		return exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script).Run()
+	default:
+		return fmt.Errorf("desktop notifications are not supported on %s", runtime.GOOS)
+	}
+}
+
+func shellEscape(s string) string {
+	s = strings.ReplaceAll(s, "'", "'\"'\"'")
+	return "'" + s + "'"
+}
+
+func psEscape(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 func (m *model) flushNotificationOutbox() {
