@@ -1301,11 +1301,11 @@ func getWeeklyData(entries []Entry) map[string]int {
 	weekly := make(map[string]int)
 	today := time.Now()
 	for i := 0; i < 7; i++ {
-		date := today.AddDate(0, 0, -i).Format("2006-01-02")
+		date := dateKey(today.AddDate(0, 0, -i))
 		weekly[date] = 0
 	}
 	for _, e := range entries {
-		date := e.Start.Format("2006-01-02")
+		date := dateKey(e.Start)
 		if _, ok := weekly[date]; ok && e.Type == "work" {
 			weekly[date] += e.Duration
 		}
@@ -1330,8 +1330,9 @@ func renderWeeklyBarChart(weeklyData map[string]int) string {
 
 	var b strings.Builder
 	for i := 6; i >= 0; i-- {
-		date := today.AddDate(0, 0, -i).Format("2006-01-02")
-		dayName := days[today.AddDate(0, 0, -i).Weekday()]
+		dateValue := today.AddDate(0, 0, -i)
+		date := dateKey(dateValue)
+		dayName := days[dateValue.Weekday()]
 		minutes := weeklyData[date] / 60
 
 		barLen := minutes * 40 / maxMinutes
@@ -1344,10 +1345,10 @@ func renderWeeklyBarChart(weeklyData map[string]int) string {
 }
 
 func getDailyTotal(entries []Entry, sessionType string) int {
-	today := time.Now().Format("2006-01-02")
+	today := dateKey(time.Now())
 	total := 0
 	for _, e := range entries {
-		if e.Start.Format("2006-01-02") == today && e.Type == sessionType {
+		if dateKey(e.Start) == today && e.Type == sessionType {
 			total += e.Duration
 		}
 	}
@@ -1358,7 +1359,7 @@ func calculateStreaks(entries []Entry) (int, int) {
 	days := make(map[string]bool)
 	for _, e := range entries {
 		if e.Type == "work" {
-			days[e.Start.Format("2006-01-02")] = true
+			days[dateKey(e.Start)] = true
 		}
 	}
 
@@ -1371,14 +1372,14 @@ func calculateStreaks(entries []Entry) (int, int) {
 	longest, temp := 0, 0
 	var last time.Time
 	for _, d := range list {
-		date, err := time.Parse("2006-01-02", d)
+		date, err := time.ParseInLocation("2006-01-02", d, time.Local)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Kairu: invalid entry date:", d)
 			continue
 		}
 		if last.IsZero() {
 			temp = 1
-		} else if int(date.Sub(last).Hours()/24) == 1 {
+		} else if last.AddDate(0, 0, 1).Equal(date) {
 			temp++
 		} else {
 			if temp > longest {
@@ -1393,12 +1394,12 @@ func calculateStreaks(entries []Entry) (int, int) {
 	}
 
 	today := time.Now()
-	if !days[today.Format("2006-01-02")] {
+	if !days[dateKey(today)] {
 		return 0, longest
 	}
 	current := 0
 	for i := 0; i < 365; i++ {
-		if days[today.AddDate(0, 0, -i).Format("2006-01-02")] {
+		if days[dateKey(today.AddDate(0, 0, -i))] {
 			current++
 		} else if i > 0 {
 			break
@@ -1406,6 +1407,10 @@ func calculateStreaks(entries []Entry) (int, int) {
 	}
 
 	return current, longest
+}
+
+func dateKey(value time.Time) string {
+	return value.In(time.Local).Format("2006-01-02")
 }
 
 func formatDuration(seconds int) string {
