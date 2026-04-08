@@ -160,6 +160,17 @@ type Entry struct {
 
 type tickTockMsg time.Time
 
+type notifResultMsg struct {
+	status string
+	err    error
+}
+
+type outboxFlushedMsg struct {
+	remaining []notificationJob
+	status    string
+	err       error
+}
+
 const (
 	focusTask = iota
 	focusDuration
@@ -186,10 +197,11 @@ func (m model) Init() tea.Cmd {
 	if m.mode == "fatal" {
 		return nil
 	}
+	cmds := []tea.Cmd{textinput.Blink, m.flushOutboxCmd()}
 	if (m.mode == "timer" || m.mode == "break") && m.running {
-		return tickCmd()
+		cmds = append(cmds, tickCmd())
 	}
-	return textinput.Blink
+	return tea.Batch(cmds...)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -206,14 +218,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if m.seconds == 0 {
+				var notifyC tea.Cmd
 				if m.mode == "timer" {
-					m.notify("work_complete")
+					notifyC = m.notifyCmd("work_complete")
 				} else {
-					m.notify("break_complete")
+					notifyC = m.notifyCmd("break_complete")
 				}
-				return m.completeSession()
+				model, cmd := m.completeSession()
+				return model, tea.Batch(notifyC, cmd)
 			}
 			return m, tickCmd()
+		}
+		return m, nil
+
+	case notifResultMsg:
+		if msg.err != nil {
+			m.setAppError(msg.err, "Notification failed")
+		} else if msg.status != "" {
+			m.notificationStatus = msg.status
+		}
+		return m, nil
+
+	case outboxFlushedMsg:
+		m.notificationOutbox = msg.remaining
+		if msg.err != nil {
+			m.setAppError(msg.err, "Failed to save notification queue")
+		} else if msg.status != "" {
+			m.notificationStatus = msg.status
+		}
+		if len(msg.remaining) > 0 {
+			m.setAppError(fmt.Errorf("%s", msg.remaining[0].LastError), "Notification queued for retry")
 		}
 		return m, nil
 
@@ -381,8 +415,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.seconds = durationSeconds
 			m.sessionElapsed = 0
 			m.inputError = ""
-			m.notify("session_start")
-			return m, tickCmd()
+			return m, tea.Batch(tickCmd(), m.notifyCmd("session_start"))
 		}
 
 		if m.mode == "edit" {
@@ -407,17 +440,18 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.mode == "timer" || m.mode == "break" {
-			m.notify("session_end")
-			return m.completeSession()
+			notifyC := m.notifyCmd("session_end")
+			model, cmd := m.completeSession()
+			return model, tea.Batch(notifyC, cmd)
 		}
 	case " ", "space":
 		if m.mode == "timer" || m.mode == "break" {
 			m.running = !m.running
-			m.notify("pause_resume")
+			notifyC := m.notifyCmd("pause_resume")
 			if m.running && m.seconds > 0 {
-				return m, tickCmd()
+				return m, tea.Batch(tickCmd(), notifyC)
 			}
-			return m, nil
+			return m, notifyC
 		}
 	case "e":
 		if m.mode == "timer" || m.mode == "break" {
@@ -467,7 +501,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) completeSession() (tea.Model, tea.Cmd) {
-	m.saveSession()
+	flushCmd := m.saveSession()
 	if m.mode == "timer" {
 		m.sessionCount++
 		if m.config.AutoBreak && m.sessionCount%m.config.SessionsBeforeBreak == 0 {
@@ -477,7 +511,7 @@ func (m model) completeSession() (tea.Model, tea.Cmd) {
 			m.seconds = m.sessionTarget
 			m.sessionElapsed = 0
 			m.running = true
-			return m, tickCmd()
+			return m, tea.Batch(tickCmd(), flushCmd)
 		}
 	}
 
@@ -490,7 +524,7 @@ func (m model) completeSession() (tea.Model, tea.Cmd) {
 	m.inputError = ""
 	m.textInput.SetValue("")
 	m = m.setInputFocus(focusTask)
-	return m, nil
+	return m, flushCmd
 }
 
 func (m *model) toggleSetting() {
@@ -732,49 +766,44 @@ func (m model) notificationBody(event string) string {
 	}
 }
 
-func (m model) notify(event string) {
+func (m model) notifyCmd(event string) tea.Cmd {
 	if !m.config.Notifications || !m.eventEnabled(event) {
-		return
+		return nil
 	}
 	if m.quietHoursActive(time.Now()) {
-		m.setNotificationStatus("Notification suppressed by quiet hours")
-		return
+		return func() tea.Msg {
+			return notifResultMsg{status: "Notification suppressed by quiet hours"}
+		}
 	}
-
 	title := m.notificationTitle(event)
 	body := m.notificationBody(event)
 	if body == "" {
-		return
+		return nil
 	}
-
-	if err := m.sendNotificationWithFallback(title, body); err != nil {
-		m.setAppError(err, "Notification failed")
+	cfg := m.config
+	return func() tea.Msg {
+		status, err := sendNotificationWithFallback(cfg, title, body)
+		return notifResultMsg{status: status, err: err}
 	}
 }
 
-func (m model) sendNotificationWithFallback(title, body string) error {
-	if m.config.DesktopNotifications {
+func sendNotificationWithFallback(cfg Config, title, body string) (string, error) {
+	if cfg.DesktopNotifications {
 		if err := sendDesktopNotification(title, body); err == nil {
-			m.setNotificationStatus("Desktop notification delivered")
-			return nil
+			return "Desktop notification delivered", nil
 		}
 	}
-
-	if m.config.SoundCommand != "" {
-		if err := exec.Command("sh", "-c", m.config.SoundCommand).Run(); err == nil {
-			m.setNotificationStatus("Sound fallback delivered")
-			return nil
+	if cfg.SoundCommand != "" {
+		if err := exec.Command("sh", "-c", cfg.SoundCommand).Run(); err == nil {
+			return "Sound fallback delivered", nil
 		}
 	}
-
-	if token := strings.TrimSpace(m.config.TelegramBotToken); token != "" && strings.TrimSpace(m.config.TelegramChatID) != "" {
-		if err := sendTelegramMessage(token, strings.TrimSpace(m.config.TelegramChatID), body); err == nil {
-			m.setNotificationStatus("Telegram fallback delivered")
-			return nil
+	if token := strings.TrimSpace(cfg.TelegramBotToken); token != "" && strings.TrimSpace(cfg.TelegramChatID) != "" {
+		if err := sendTelegramMessage(token, strings.TrimSpace(cfg.TelegramChatID), body); err == nil {
+			return "Telegram fallback delivered", nil
 		}
 	}
-
-	return fmt.Errorf("all notification channels failed")
+	return "", fmt.Errorf("all notification channels failed")
 }
 
 func sendDesktopNotification(title, body string) error {
@@ -816,33 +845,40 @@ func psEscape(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
 
-func (m *model) flushNotificationOutbox() {
+func (m model) flushOutboxCmd() tea.Cmd {
 	if !m.config.Notifications || len(m.notificationOutbox) == 0 {
-		return
+		return nil
 	}
-
-	remaining := make([]notificationJob, 0, len(m.notificationOutbox))
-	for _, job := range m.notificationOutbox {
-		if err := m.sendNotificationJob(job); err != nil {
-			job.Attempts++
-			job.LastError = err.Error()
-			remaining = append(remaining, job)
-			continue
+	jobs := make([]notificationJob, len(m.notificationOutbox))
+	copy(jobs, m.notificationOutbox)
+	cfg := m.config
+	outboxFile := m.outboxFile
+	return func() tea.Msg {
+		remaining := make([]notificationJob, 0)
+		var lastStatus string
+		for _, job := range jobs {
+			if err := sendNotificationJob(cfg, job); err != nil {
+				job.Attempts++
+				job.LastError = err.Error()
+				remaining = append(remaining, job)
+				continue
+			}
+			lastStatus = "Notification queue delivered"
 		}
-		m.setNotificationStatus("Notification queue delivered")
-	}
-	m.notificationOutbox = remaining
-	if err := saveNotificationOutbox(m.outboxFile, m.notificationOutbox); err != nil {
-		m.setAppError(err, "Failed to save notification queue")
+		var saveErr error
+		if err := saveNotificationOutbox(outboxFile, remaining); err != nil {
+			saveErr = err
+		}
+		return outboxFlushedMsg{remaining: remaining, status: lastStatus, err: saveErr}
 	}
 }
 
-func (m model) sendNotificationJob(job notificationJob) error {
+func sendNotificationJob(cfg Config, job notificationJob) error {
 	if job.SessionType != "work" {
 		return nil
 	}
-	token := strings.TrimSpace(m.config.TelegramBotToken)
-	chatID := strings.TrimSpace(m.config.TelegramChatID)
+	token := strings.TrimSpace(cfg.TelegramBotToken)
+	chatID := strings.TrimSpace(cfg.TelegramChatID)
 	if token == "" || chatID == "" {
 		return fmt.Errorf("telegram notifications require %s and %s", envTelegramBotToken, envTelegramChatID)
 	}
@@ -857,8 +893,8 @@ func (m model) sendNotificationJob(job notificationJob) error {
 			lastErr = err
 			continue
 		}
-		if m.config.SoundCommand != "" {
-			if err := exec.Command("sh", "-c", m.config.SoundCommand).Run(); err != nil {
+		if cfg.SoundCommand != "" {
+			if err := exec.Command("sh", "-c", cfg.SoundCommand).Run(); err != nil {
 				return fmt.Errorf("sound command failed: %w", err)
 			}
 		}
@@ -867,7 +903,7 @@ func (m model) sendNotificationJob(job notificationJob) error {
 	return fmt.Errorf("telegram send failed after retries: %w", lastErr)
 }
 
-func (m *model) saveSession() {
+func (m *model) saveSession() tea.Cmd {
 	duration := m.sessionElapsed
 	sessionType := "work"
 	if m.mode == "break" {
@@ -886,21 +922,21 @@ func (m *model) saveSession() {
 	if data, err := os.ReadFile(m.dataFile); err == nil {
 		if err := json.Unmarshal(data, &entries); err != nil {
 			m.setAppError(err, "Failed to parse entries")
-			return
+			return nil
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		m.setAppError(err, "Failed to read entries")
-		return
+		return nil
 	}
 	entries = append(entries, entry)
 	fileData, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		m.setAppError(err, "Failed to encode entries")
-		return
+		return nil
 	}
 	if err := os.WriteFile(m.dataFile, fileData, 0644); err != nil {
 		m.setAppError(err, "Failed to write entries")
-		return
+		return nil
 	}
 	m.entries = entries
 
@@ -909,13 +945,11 @@ func (m *model) saveSession() {
 		m.notificationOutbox = append(m.notificationOutbox, job)
 		if err := saveNotificationOutbox(m.outboxFile, m.notificationOutbox); err != nil {
 			m.setAppError(err, "Failed to save notification queue")
-			return
+			return nil
 		}
-		m.flushNotificationOutbox()
-		if len(m.notificationOutbox) > 0 {
-			m.setAppError(fmt.Errorf("%s", m.notificationOutbox[0].LastError), "Notification queued for retry")
-		}
+		return m.flushOutboxCmd()
 	}
+	return nil
 }
 
 func sendTelegramMessage(token, chatID, text string) error {
@@ -1483,7 +1517,6 @@ func main() {
 
 	if jobs, err := loadNotificationOutbox(m.outboxFile); err == nil {
 		m.notificationOutbox = jobs
-		m.flushNotificationOutbox()
 	} else {
 		startupErrors = append(startupErrors, fmt.Sprintf("Failed to read notification queue: %v", err))
 		m.appError = strings.Join(startupErrors, " | ")
