@@ -17,6 +17,7 @@ Timer mode:
 - E to edit total session duration
 - Enter to end session early
 - Tab to open the stats dashboard
+- S to open the settings panel
 - ? for help
 - q to quit (saves session if running)
 
@@ -29,6 +30,7 @@ Stats dashboard:
 - Weekly activity bar chart (last 7 days)
 - Work/break ratio for this run
 - Tab to return
+- S to open the settings panel
 - ? for help
 
 Errors:

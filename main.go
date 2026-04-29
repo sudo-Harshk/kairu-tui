@@ -120,6 +120,8 @@ type model struct {
 	editWasRunning     bool
 	helpReturnMode     string
 	helpWasRunning     bool
+	settingsReturnMode string
+	statsReturnMode    string
 	textInput          textinput.Model
 	durationInput      textinput.Model
 	focusedField       int
@@ -177,7 +179,8 @@ const (
 )
 
 const (
-	settingsDesktop = iota
+	settingsNotifications = iota
+	settingsDesktop
 	settingsWorkComplete
 	settingsBreakComplete
 	settingsSessionStart
@@ -204,22 +207,67 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+func (m model) activeSessionMode() string {
+	switch m.mode {
+	case "timer", "break":
+		return m.mode
+	case "edit":
+		return m.editReturnMode
+	case "settings":
+		if m.settingsReturnMode == "stats" {
+			return m.statsReturnMode
+		}
+		return m.settingsReturnMode
+	case "stats":
+		return m.statsReturnMode
+	case "help":
+		switch m.helpReturnMode {
+		case "settings":
+			if m.settingsReturnMode == "stats" {
+				return m.statsReturnMode
+			}
+			return m.settingsReturnMode
+		case "stats":
+			return m.statsReturnMode
+		default:
+			return m.helpReturnMode
+		}
+	default:
+		return ""
+	}
+}
+
+func (m *model) saveOnQuit() {
+	sessionMode := m.activeSessionMode()
+	if (sessionMode != "timer" && sessionMode != "break") || m.seconds <= 0 {
+		return
+	}
+	previous := m.mode
+	m.mode = sessionMode
+	m.saveSession()
+	m.mode = previous
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickTockMsg:
-		if m.running && (m.mode == "timer" || m.mode == "break") {
+		sessionMode := m.activeSessionMode()
+		if m.running && (sessionMode == "timer" || sessionMode == "break") {
 			if m.seconds > 0 {
 				m.seconds--
 				m.sessionElapsed++
-				if m.mode == "timer" {
+				if sessionMode == "timer" {
 					m.totalWorkTime++
 				} else {
 					m.totalBreakTime++
 				}
 			}
 			if m.seconds == 0 {
+				if m.mode != sessionMode {
+					m.mode = sessionMode
+				}
 				var notifyC tea.Cmd
-				if m.mode == "timer" {
+				if sessionMode == "timer" {
 					notifyC = m.notifyCmd("work_complete")
 				} else {
 					notifyC = m.notifyCmd("break_complete")
@@ -278,9 +326,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.closeHelp(true)
 			}
 			if key == "ctrl+c" || key == "q" {
-				if m.helpReturnMode == "timer" && m.seconds > 0 {
-					m.saveSession()
-				}
+				m.saveOnQuit()
 				return m, tea.Quit
 			}
 			// Keep the help screen modal so timer shortcuts don't fire underneath it.
@@ -308,9 +354,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.adjustSetting(1)
 				return m, nil
 			case "esc":
-				m.mode = "timer"
+				if m.settingsReturnMode != "" {
+					m.mode = m.settingsReturnMode
+				} else {
+					m.mode = "timer"
+				}
 				return m, nil
 			case "q", "ctrl+c":
+				m.saveOnQuit()
 				return m, tea.Quit
 			}
 			return m, nil
@@ -337,8 +388,11 @@ func (m model) setInputFocus(field int) model {
 func (m model) openHelp() model {
 	m.helpReturnMode = m.mode
 	m.helpWasRunning = m.running
-	if m.running && (m.mode == "timer" || m.mode == "break") {
-		m.running = false
+	if m.running {
+		sessionMode := m.activeSessionMode()
+		if sessionMode == "timer" || sessionMode == "break" {
+			m.running = false
+		}
 	}
 	m.mode = "help"
 	return m
@@ -346,15 +400,13 @@ func (m model) openHelp() model {
 
 func (m model) closeHelp(resume bool) (model, tea.Cmd) {
 	m.mode = m.helpReturnMode
-	if m.mode == "timer" || m.mode == "break" {
-		if resume && m.helpWasRunning {
-			m.running = true
-			if m.seconds > 0 {
-				return m, tickCmd()
-			}
-		} else {
-			m.running = false
+	if resume && m.helpWasRunning {
+		m.running = true
+		if m.seconds > 0 {
+			return m, tickCmd()
 		}
+	} else {
+		m.running = false
 	}
 	return m, nil
 }
@@ -365,9 +417,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "ctrl+c", "q":
-		if m.mode == "timer" && m.seconds > 0 {
-			m.saveSession()
-		}
+		m.saveOnQuit()
 		return m, tea.Quit
 
 	case "tab":
@@ -380,17 +430,24 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.mode == "timer" || m.mode == "break" {
-			m.mode = "settings"
-			m.settingsCursor = settingsDesktop
+			m.statsReturnMode = m.mode
+			m.mode = "stats"
 			return m, nil
 		}
 		if m.mode == "stats" {
-			m.mode = "settings"
-			m.settingsCursor = settingsDesktop
+			if m.statsReturnMode != "" {
+				m.mode = m.statsReturnMode
+			} else {
+				m.mode = "timer"
+			}
 			return m, nil
 		}
-		if m.mode == "settings" {
-			m.mode = "stats"
+
+	case "s":
+		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" {
+			m.settingsReturnMode = m.mode
+			m.settingsCursor = settingsNotifications
+			m.mode = "settings"
 			return m, nil
 		}
 
@@ -529,6 +586,8 @@ func (m model) completeSession() (tea.Model, tea.Cmd) {
 
 func (m *model) toggleSetting() {
 	switch m.settingsCursor {
+	case settingsNotifications:
+		m.config.Notifications = !m.config.Notifications
 	case settingsDesktop:
 		m.config.DesktopNotifications = !m.config.DesktopNotifications
 	case settingsWorkComplete:
@@ -1100,9 +1159,9 @@ func renderTimerView(m model) string {
 	empty := barWidth - filled
 	progress := fmt.Sprintf("[%s%s] %.0f%%", strings.Repeat("█", filled), strings.Repeat("░", empty), remainingPct)
 
-	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [?] Help  [q] Quit"
+	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [?] Help  [q] Quit"
 	if !m.running {
-		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [?] Help  [q] Quit"
+		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [?] Help  [q] Quit"
 	}
 
 	header := fmt.Sprintf("%s • %s", modeStr, m.taskName)
@@ -1173,7 +1232,7 @@ func renderStatsView(m model) string {
 	if total > 0 {
 		workRatio = m.totalWorkTime * 100 / total
 	}
-	footer := "[Tab] Back   [?] Help   [q] Quit"
+	footer := "[Tab] Back   [S] Settings   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
 	if errorLine != "" {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
@@ -1221,6 +1280,7 @@ func renderSettingsView(m model) string {
 	}
 
 	items := []string{
+		renderSettingLine(m.settingsCursor == settingsNotifications, "Notifications", boolLabel(m.config.Notifications)),
 		renderSettingLine(m.settingsCursor == settingsDesktop, "Desktop notifications", boolLabel(m.config.DesktopNotifications)),
 		renderSettingLine(m.settingsCursor == settingsWorkComplete, "Work complete", boolLabel(m.config.NotifyWorkComplete)),
 		renderSettingLine(m.settingsCursor == settingsBreakComplete, "Break complete", boolLabel(m.config.NotifyBreakComplete)),
@@ -1288,6 +1348,7 @@ func renderHelpView(m model) string {
 		formatHelpLine("E", "Edit time"),
 		formatHelpLine("Enter", "End session"),
 		formatHelpLine("Tab", "Stats"),
+		formatHelpLine("S", "Settings"),
 		"",
 		"Edit:",
 		formatHelpLine("Enter", "Apply"),
@@ -1295,6 +1356,7 @@ func renderHelpView(m model) string {
 		"",
 		"Stats:",
 		formatHelpLine("Tab", "Back"),
+		formatHelpLine("S", "Settings"),
 		"",
 	}
 	body := lipgloss.NewStyle().Width(35).Render(strings.Join(lines, "\n"))

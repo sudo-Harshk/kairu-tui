@@ -9,7 +9,7 @@ A TUI time tracker inspired by Pomodoro technique with ASCII art timer and activ
 - **Weekly Bar Chart** - Visualize your 7-day activity
 - **Desktop Notifications** - Get notified locally when sessions start, end, or finish
 - **Notification Settings Panel** - Toggle alerts and quiet hours from inside the app
-- **Keyboard Controls** - Use Tab to switch fields, Space to pause, E to edit time
+- **Keyboard Controls** - Use Tab to switch fields or open stats, Space to pause, E to edit time, S for settings
 - **Help Overlay** - Press ? to view keybindings anytime
 - **In-app Error Messages** - Runtime issues surface inside the UI
 - **Work/Break Cycles** - Pomodoro-style productivity
