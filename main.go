@@ -1395,6 +1395,10 @@ func renderStatsView(m model) string {
 
 	daily := formatDuration(getDailyTotal(m.entries, "work"))
 	current, longest := calculateStreaks(m.entries)
+	emptyMessage := ""
+	if len(m.entries) == 0 {
+		emptyMessage = "No sessions yet. Start a focus session to see stats."
+	}
 
 	workRatio := 0
 	total := m.totalWorkTime + m.totalBreakTime
@@ -1405,6 +1409,9 @@ func renderStatsView(m model) string {
 	errorLine := renderAppError(m)
 	if errorLine != "" {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
+	if emptyMessage != "" {
+		emptyMessage = fmt.Sprintf("\n%s\n", emptyMessage)
 	}
 
 	return fmt.Sprintf(`
@@ -1434,7 +1441,9 @@ Weekly Activity (7 days):
 %s
 
 %s
-`, daily, current, longest, workRatio, 100-workRatio, barChart, footer)
+
+%s
+`, daily, current, longest, workRatio, 100-workRatio, emptyMessage, barChart, footer)
 }
 
 func renderSettingsView(m model) string {
@@ -1590,7 +1599,7 @@ func renderWeeklyBarChart(weeklyData map[string]int) string {
 		}
 	}
 	if maxMinutes == 0 {
-		maxMinutes = 1
+		return "No activity yet."
 	}
 
 	var b strings.Builder
