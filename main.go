@@ -354,11 +354,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.adjustSetting(1)
 				return m, nil
 			case "esc":
-				if m.settingsReturnMode != "" {
-					m.mode = m.settingsReturnMode
-				} else {
-					m.mode = "timer"
+				target := m.settingsReturnMode
+				if target == "" {
+					target = m.activeSessionMode()
 				}
+				if target == "" {
+					target = "timer"
+				}
+				m.mode = target
 				return m, nil
 			case "q", "ctrl+c":
 				m.saveOnQuit()
@@ -388,12 +391,6 @@ func (m model) setInputFocus(field int) model {
 func (m model) openHelp() model {
 	m.helpReturnMode = m.mode
 	m.helpWasRunning = m.running
-	if m.running {
-		sessionMode := m.activeSessionMode()
-		if sessionMode == "timer" || sessionMode == "break" {
-			m.running = false
-		}
-	}
 	m.mode = "help"
 	return m
 }
@@ -401,12 +398,16 @@ func (m model) openHelp() model {
 func (m model) closeHelp(resume bool) (model, tea.Cmd) {
 	m.mode = m.helpReturnMode
 	if resume && m.helpWasRunning {
-		m.running = true
-		if m.seconds > 0 {
-			return m, tickCmd()
+		if !m.running {
+			m.running = true
+			if m.seconds > 0 {
+				return m, tickCmd()
+			}
 		}
 	} else {
-		m.running = false
+		if !m.helpWasRunning {
+			m.running = false
+		}
 	}
 	return m, nil
 }
@@ -1333,7 +1334,7 @@ func renderHelpView(m model) string {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
 	}
 	lines := []string{
-		"Timer pauses while help is open.",
+		"Timer continues while help is open.",
 		"",
 		"Global:",
 		formatHelpLine("?", "Toggle help"),
