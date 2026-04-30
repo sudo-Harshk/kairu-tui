@@ -209,3 +209,126 @@ func TestDateKeyUsesLocal(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestValidateEntries(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	valid := []Entry{
+		{Task: "focus", Start: now, End: now, Duration: 0, Type: "work"},
+		{Task: "break", Start: now, End: now.Add(2 * time.Minute), Duration: 120, Type: "break"},
+	}
+	if err := validateEntries(valid); err != nil {
+		t.Fatalf("expected valid entries, got error: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		entry  Entry
+		hasErr bool
+	}{
+		{name: "missingTask", entry: Entry{Task: " ", Start: now, End: now, Duration: 10, Type: "work"}, hasErr: true},
+		{name: "invalidType", entry: Entry{Task: "x", Start: now, End: now, Duration: 10, Type: "other"}, hasErr: true},
+		{name: "missingStart", entry: Entry{Task: "x", End: now, Duration: 10, Type: "work"}, hasErr: true},
+		{name: "missingEnd", entry: Entry{Task: "x", Start: now, Duration: 10, Type: "work"}, hasErr: true},
+		{name: "endBeforeStart", entry: Entry{Task: "x", Start: now, End: now.Add(-time.Minute), Duration: 10, Type: "work"}, hasErr: true},
+		{name: "negativeDuration", entry: Entry{Task: "x", Start: now, End: now, Duration: -1, Type: "work"}, hasErr: true},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if err := validateEntries([]Entry{tc.entry}); (err != nil) != tc.hasErr {
+				t.Fatalf("expected error=%t, got %v", tc.hasErr, err)
+			}
+		})
+	}
+}
+
+func TestMergeEntriesDedup(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2024, 6, 1, 9, 0, 0, 0, time.Local)
+	entryA := Entry{Task: "a", Start: start, End: start.Add(25 * time.Minute), Duration: 1500, Type: "work"}
+	entryB := Entry{Task: "b", Start: start.Add(2 * time.Hour), End: start.Add(2*time.Hour + 5*time.Minute), Duration: 300, Type: "break"}
+	entryC := Entry{Task: "c", Start: start.Add(3 * time.Hour), End: start.Add(3*time.Hour + 10*time.Minute), Duration: 600, Type: "work"}
+
+	existing := []Entry{entryA, entryB}
+	incoming := []Entry{entryA, entryC}
+	merged := mergeEntries(existing, incoming)
+
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 merged entries, got %d", len(merged))
+	}
+
+	seen := map[string]bool{}
+	for _, entry := range merged {
+		seen[entryKey(entry)] = true
+	}
+	if !seen[entryKey(entryA)] || !seen[entryKey(entryB)] || !seen[entryKey(entryC)] {
+		t.Fatalf("merged entries missing expected items")
+	}
+}
+
+func TestNotificationIDDedup(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2024, 6, 1, 9, 0, 0, 0, time.Local)
+	m := model{
+		sessionStart:   start,
+		sessionElapsed: 120,
+		taskName:       "Focus",
+		running:        true,
+	}
+
+	first := m.notificationID("session_start")
+	second := m.notificationID("session_start")
+	if first != second {
+		t.Fatalf("expected stable notification ID, got %q and %q", first, second)
+	}
+
+	pause := m.notificationID("pause_resume")
+	m.running = false
+	resume := m.notificationID("pause_resume")
+	if pause == resume {
+		t.Fatalf("expected pause/resume IDs to differ")
+	}
+}
+
+func TestHasNotification(t *testing.T) {
+	t.Parallel()
+
+	m := model{
+		deliveredNotifyIDs: map[string]time.Time{"delivered": time.Now()},
+		notificationOutbox: []notificationJob{{ID: "queued"}},
+	}
+
+	if !m.hasNotification("delivered") {
+		t.Fatalf("expected delivered notification to be found")
+	}
+	if !m.hasNotification("queued") {
+		t.Fatalf("expected queued notification to be found")
+	}
+	if m.hasNotification("missing") {
+		t.Fatalf("did not expect missing notification to be found")
+	}
+}
+
+func TestActiveSessionMode(t *testing.T) {
+	t.Parallel()
+
+	m := model{mode: "settings", settingsReturnMode: "break"}
+	if got := m.activeSessionMode(); got != "break" {
+		t.Fatalf("expected break from settings, got %q", got)
+	}
+
+	m = model{
+		mode:               "help",
+		helpReturnMode:     "settings",
+		settingsReturnMode: "break",
+	}
+	if got := m.activeSessionMode(); got != "break" {
+		t.Fatalf("expected break via help->settings, got %q", got)
+	}
+}
