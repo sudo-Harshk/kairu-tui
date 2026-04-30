@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -160,6 +161,113 @@ type Entry struct {
 	End      time.Time `json:"end"`
 	Duration int       `json:"duration_seconds"`
 	Type     string    `json:"type"`
+}
+
+func loadEntries(path string) ([]Entry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []Entry{}, nil
+		}
+		return nil, err
+	}
+	var entries []Entry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, err
+	}
+	if err := validateEntries(entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func validateEntries(entries []Entry) error {
+	for i, entry := range entries {
+		if strings.TrimSpace(entry.Task) == "" {
+			return fmt.Errorf("entry %d: task is required", i)
+		}
+		if entry.Type != "work" && entry.Type != "break" {
+			return fmt.Errorf("entry %d: type must be work or break", i)
+		}
+		if entry.Start.IsZero() || entry.End.IsZero() {
+			return fmt.Errorf("entry %d: start and end must be set", i)
+		}
+		if entry.End.Before(entry.Start) {
+			return fmt.Errorf("entry %d: end is before start", i)
+		}
+		if entry.Duration < 0 {
+			return fmt.Errorf("entry %d: duration must be 0 or greater", i)
+		}
+	}
+	return nil
+}
+
+func mergeEntries(existing, incoming []Entry) []Entry {
+	seen := make(map[string]struct{}, len(existing))
+	for _, entry := range existing {
+		seen[entryKey(entry)] = struct{}{}
+	}
+	merged := append([]Entry{}, existing...)
+	for _, entry := range incoming {
+		key := entryKey(entry)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, entry)
+	}
+	return merged
+}
+
+func entryKey(entry Entry) string {
+	return fmt.Sprintf("%s|%s|%s|%s",
+		strings.TrimSpace(entry.Task),
+		entry.Start.Format(time.RFC3339Nano),
+		entry.End.Format(time.RFC3339Nano),
+		entry.Type,
+	)
+}
+
+func exportEntries(dataFile, exportPath string) error {
+	entries, err := loadEntries(dataFile)
+	if err != nil {
+		return fmt.Errorf("failed to read entries: %w", err)
+	}
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode entries: %w", err)
+	}
+	if err := os.WriteFile(exportPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write export file: %w", err)
+	}
+	return nil
+}
+
+func importEntries(dataFile, importPath string) error {
+	incomingData, err := os.ReadFile(importPath)
+	if err != nil {
+		return fmt.Errorf("failed to read import file: %w", err)
+	}
+	var incoming []Entry
+	if err := json.Unmarshal(incomingData, &incoming); err != nil {
+		return fmt.Errorf("failed to parse import file: %w", err)
+	}
+	if err := validateEntries(incoming); err != nil {
+		return fmt.Errorf("import validation failed: %w", err)
+	}
+	existing, err := loadEntries(dataFile)
+	if err != nil {
+		return fmt.Errorf("failed to read existing entries: %w", err)
+	}
+	merged := mergeEntries(existing, incoming)
+	data, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode merged entries: %w", err)
+	}
+	if err := os.WriteFile(dataFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write entries: %w", err)
+	}
+	return nil
 }
 
 type tickTockMsg time.Time
@@ -1587,6 +1695,30 @@ func renderBanner() string {
 
 func main() {
 	dataFile := "entries.json"
+	exportPath := flag.String("export", "", "Export entries.json to the provided file path")
+	importPath := flag.String("import", "", "Import entries from the provided file path into entries.json")
+	flag.Parse()
+
+	if *exportPath != "" && *importPath != "" {
+		fmt.Println("Error: --export and --import cannot be used together.")
+		os.Exit(1)
+	}
+	if *exportPath != "" {
+		if err := exportEntries(dataFile, *exportPath); err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Export complete:", *exportPath)
+		return
+	}
+	if *importPath != "" {
+		if err := importEntries(dataFile, *importPath); err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Import complete:", *importPath)
+		return
+	}
 	startupErrors := []string{}
 	if err := loadEnvFile(".env"); err != nil {
 		startupErrors = append(startupErrors, fmt.Sprintf("Failed to load .env: %v", err))

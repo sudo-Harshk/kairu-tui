@@ -40,3 +40,16 @@ Errors:
 Data:
 - Sessions are appended to entries.json in the project directory
 - Each entry includes task, start, end, duration (seconds), and type (work/break)
+
+CLI data utilities:
+- Export entries to a file:
+
+```bash
+go run main.go --export backup.json
+```
+
+- Import entries from a file (merged with existing data, duplicates removed):
+
+```bash
+go run main.go --import backup.json
+```
