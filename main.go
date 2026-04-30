@@ -139,17 +139,19 @@ type model struct {
 	totalWorkTime      int
 	totalBreakTime     int
 	notificationOutbox []notificationJob
+	deliveredNotifyIDs map[string]time.Time
 	outboxFile         string
 }
 
 type notificationJob struct {
-	ID          string    `json:"id"`
-	SessionType string    `json:"session_type"`
-	Task        string    `json:"task"`
-	Duration    int       `json:"duration_seconds"`
-	CreatedAt   time.Time `json:"created_at"`
-	Attempts    int       `json:"attempts"`
-	LastError   string    `json:"last_error,omitempty"`
+	ID            string    `json:"id"`
+	Event         string    `json:"event"`
+	Title         string    `json:"title"`
+	Body          string    `json:"body"`
+	CreatedAt     time.Time `json:"created_at"`
+	Attempts      int       `json:"attempts"`
+	NextAttemptAt time.Time `json:"next_attempt_at"`
+	LastError     string    `json:"last_error,omitempty"`
 }
 
 type Entry struct {
@@ -163,14 +165,16 @@ type Entry struct {
 type tickTockMsg time.Time
 
 type notifResultMsg struct {
+	id     string
 	status string
 	err    error
 }
 
 type outboxFlushedMsg struct {
-	remaining []notificationJob
-	status    string
-	err       error
+	remaining    []notificationJob
+	deliveredIDs []string
+	status       string
+	err          error
 }
 
 const (
@@ -282,13 +286,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case notifResultMsg:
 		if msg.err != nil {
 			m.setAppError(msg.err, "Notification failed")
-		} else if msg.status != "" {
-			m.notificationStatus = msg.status
+		} else {
+			if msg.status != "" {
+				m.notificationStatus = msg.status
+			}
+			if msg.id != "" {
+				if m.deliveredNotifyIDs == nil {
+					m.deliveredNotifyIDs = make(map[string]time.Time)
+				}
+				m.deliveredNotifyIDs[msg.id] = time.Now()
+			}
 		}
 		return m, nil
 
 	case outboxFlushedMsg:
 		m.notificationOutbox = msg.remaining
+		if len(msg.deliveredIDs) > 0 {
+			if m.deliveredNotifyIDs == nil {
+				m.deliveredNotifyIDs = make(map[string]time.Time)
+			}
+			now := time.Now()
+			for _, id := range msg.deliveredIDs {
+				m.deliveredNotifyIDs[id] = now
+			}
+		}
 		if msg.err != nil {
 			m.setAppError(msg.err, "Failed to save notification queue")
 		} else if msg.status != "" {
@@ -736,18 +757,28 @@ func saveConfigFile(path string, cfg Config) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func newNotificationJob(sessionType, task string, duration int) notificationJob {
+var notificationBackoff = []time.Duration{
+	2 * time.Second,
+	5 * time.Second,
+	15 * time.Second,
+}
+
+func newNotificationJob(id, event, title, body string) notificationJob {
 	return notificationJob{
-		ID:          fmt.Sprintf("%d-%s", time.Now().UnixNano(), sessionType),
-		SessionType: sessionType,
-		Task:        task,
-		Duration:    duration,
-		CreatedAt:   time.Now(),
+		ID:        id,
+		Event:     event,
+		Title:     title,
+		Body:      body,
+		CreatedAt: time.Now(),
 	}
 }
 
-func (j notificationJob) message() string {
-	return fmt.Sprintf("Session completed: %s (%s)", j.Task, formatDuration(j.Duration))
+func scheduleNextAttempt(job *notificationJob) {
+	delay := notificationBackoff[len(notificationBackoff)-1]
+	if job.Attempts > 0 && job.Attempts <= len(notificationBackoff) {
+		delay = notificationBackoff[job.Attempts-1]
+	}
+	job.NextAttemptAt = time.Now().Add(delay)
 }
 
 func (m model) eventEnabled(event string) bool {
@@ -826,6 +857,37 @@ func (m model) notificationBody(event string) string {
 	}
 }
 
+func (m model) notificationID(event string) string {
+	base := fmt.Sprintf("%s-%d", event, m.sessionStart.UnixNano())
+	switch event {
+	case "pause_resume":
+		return fmt.Sprintf("%s-%t-%d", base, m.running, m.sessionElapsed)
+	case "session_start":
+		return fmt.Sprintf("%s-%s", base, m.taskName)
+	case "session_end", "work_complete", "break_complete", "ending_soon":
+		return fmt.Sprintf("%s-%d", base, m.sessionElapsed)
+	default:
+		return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
+	}
+}
+
+func (m model) hasNotification(id string) bool {
+	if id == "" {
+		return false
+	}
+	if m.deliveredNotifyIDs != nil {
+		if _, ok := m.deliveredNotifyIDs[id]; ok {
+			return true
+		}
+	}
+	for _, job := range m.notificationOutbox {
+		if job.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (m model) notifyCmd(event string) tea.Cmd {
 	if !m.config.Notifications || !m.eventEnabled(event) {
 		return nil
@@ -840,14 +902,43 @@ func (m model) notifyCmd(event string) tea.Cmd {
 	if body == "" {
 		return nil
 	}
+	id := m.notificationID(event)
+	if m.hasNotification(id) {
+		return func() tea.Msg {
+			return notifResultMsg{id: id, status: "Duplicate notification suppressed"}
+		}
+	}
+	job := newNotificationJob(id, event, title, body)
 	cfg := m.config
+	outboxFile := m.outboxFile
+	existing := append([]notificationJob(nil), m.notificationOutbox...)
 	return func() tea.Msg {
-		status, err := sendNotificationWithFallback(cfg, title, body)
-		return notifResultMsg{status: status, err: err}
+		status, err := sendNotification(cfg, job)
+		if err == nil {
+			return notifResultMsg{id: id, status: status}
+		}
+		job.Attempts = 1
+		job.LastError = err.Error()
+		scheduleNextAttempt(&job)
+		updated := append(existing, job)
+		if saveErr := saveNotificationOutbox(outboxFile, updated); saveErr != nil {
+			return outboxFlushedMsg{remaining: updated, err: saveErr}
+		}
+		return outboxFlushedMsg{
+			remaining: updated,
+			status:    "Notification queued for retry",
+		}
 	}
 }
 
-func sendNotificationWithFallback(cfg Config, title, body string) (string, error) {
+func sendNotification(cfg Config, job notificationJob) (string, error) {
+	if strings.TrimSpace(job.Body) == "" {
+		return "", fmt.Errorf("notification body is empty")
+	}
+	return deliverNotification(cfg, job.Title, job.Body)
+}
+
+func deliverNotification(cfg Config, title, body string) (string, error) {
 	if cfg.DesktopNotifications {
 		if err := sendDesktopNotification(title, body); err == nil {
 			return "Desktop notification delivered", nil
@@ -915,52 +1006,31 @@ func (m model) flushOutboxCmd() tea.Cmd {
 	outboxFile := m.outboxFile
 	return func() tea.Msg {
 		remaining := make([]notificationJob, 0)
+		var delivered []string
 		var lastStatus string
+		now := time.Now()
 		for _, job := range jobs {
-			if err := sendNotificationJob(cfg, job); err != nil {
-				job.Attempts++
-				job.LastError = err.Error()
+			if !job.NextAttemptAt.IsZero() && job.NextAttemptAt.After(now) {
 				remaining = append(remaining, job)
 				continue
 			}
-			lastStatus = "Notification queue delivered"
+			status, err := sendNotification(cfg, job)
+			if err != nil {
+				job.Attempts++
+				job.LastError = err.Error()
+				scheduleNextAttempt(&job)
+				remaining = append(remaining, job)
+				continue
+			}
+			lastStatus = status
+			delivered = append(delivered, job.ID)
 		}
 		var saveErr error
 		if err := saveNotificationOutbox(outboxFile, remaining); err != nil {
 			saveErr = err
 		}
-		return outboxFlushedMsg{remaining: remaining, status: lastStatus, err: saveErr}
+		return outboxFlushedMsg{remaining: remaining, deliveredIDs: delivered, status: lastStatus, err: saveErr}
 	}
-}
-
-func sendNotificationJob(cfg Config, job notificationJob) error {
-	if job.SessionType != "work" {
-		return nil
-	}
-	token := strings.TrimSpace(cfg.TelegramBotToken)
-	chatID := strings.TrimSpace(cfg.TelegramChatID)
-	if token == "" || chatID == "" {
-		return fmt.Errorf("telegram notifications require %s and %s", envTelegramBotToken, envTelegramChatID)
-	}
-
-	var lastErr error
-	backoffs := []time.Duration{0, 2 * time.Second, 5 * time.Second}
-	for attempt := 0; attempt < len(backoffs); attempt++ {
-		if backoffs[attempt] > 0 {
-			time.Sleep(backoffs[attempt])
-		}
-		if err := sendTelegramMessage(token, chatID, job.message()); err != nil {
-			lastErr = err
-			continue
-		}
-		if cfg.SoundCommand != "" {
-			if err := exec.Command("sh", "-c", cfg.SoundCommand).Run(); err != nil {
-				return fmt.Errorf("sound command failed: %w", err)
-			}
-		}
-		return nil
-	}
-	return fmt.Errorf("telegram send failed after retries: %w", lastErr)
 }
 
 func (m *model) saveSession() tea.Cmd {
@@ -999,16 +1069,6 @@ func (m *model) saveSession() tea.Cmd {
 		return nil
 	}
 	m.entries = entries
-
-	if m.config.Notifications {
-		job := newNotificationJob(sessionType, m.taskName, duration)
-		m.notificationOutbox = append(m.notificationOutbox, job)
-		if err := saveNotificationOutbox(m.outboxFile, m.notificationOutbox); err != nil {
-			m.setAppError(err, "Failed to save notification queue")
-			return nil
-		}
-		return m.flushOutboxCmd()
-	}
 	return nil
 }
 
@@ -1566,16 +1626,17 @@ func main() {
 	}
 
 	m := model{
-		mode:          mode,
-		textInput:     ti,
-		durationInput: di,
-		focusedField:  focusTask,
-		entries:       entryList,
-		dataFile:      dataFile,
-		configFile:    "kairu.yaml",
-		config:        cfg,
-		appError:      strings.Join(startupErrors, " | "),
-		outboxFile:    defaultOutboxFile(),
+		mode:               mode,
+		textInput:          ti,
+		durationInput:      di,
+		focusedField:       focusTask,
+		entries:            entryList,
+		dataFile:           dataFile,
+		configFile:         "kairu.yaml",
+		config:             cfg,
+		appError:           strings.Join(startupErrors, " | "),
+		outboxFile:         defaultOutboxFile(),
+		deliveredNotifyIDs: make(map[string]time.Time),
 	}
 
 	if jobs, err := loadNotificationOutbox(m.outboxFile); err == nil {
