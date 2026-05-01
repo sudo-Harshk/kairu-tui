@@ -1597,35 +1597,58 @@ func renderSettingsView(m model) string {
 		footer = fmt.Sprintf("%s\n%s", statusLine, footer)
 	}
 
-	items := []string{
-		renderSettingLine(m.settingsCursor == settingsNotifications, "Notifications", boolLabel(m.config.Notifications)),
-		renderSettingLine(m.settingsCursor == settingsDesktop, "Desktop notifications", boolLabel(m.config.DesktopNotifications)),
-		renderSettingLine(m.settingsCursor == settingsWorkComplete, "Work complete", boolLabel(m.config.NotifyWorkComplete)),
-		renderSettingLine(m.settingsCursor == settingsBreakComplete, "Break complete", boolLabel(m.config.NotifyBreakComplete)),
-		renderSettingLine(m.settingsCursor == settingsSessionStart, "Session start", boolLabel(m.config.NotifySessionStart)),
-		renderSettingLine(m.settingsCursor == settingsSessionEnd, "Session end", boolLabel(m.config.NotifySessionEnd)),
-		renderSettingLine(m.settingsCursor == settingsPauseResume, "Pause/resume", boolLabel(m.config.NotifyPauseResume)),
-		renderSettingLine(m.settingsCursor == settingsEndingSoon, "Ending soon", boolLabel(m.config.NotifyEndingSoon)),
-		renderSettingLine(m.settingsCursor == settingsTheme, "Theme", themeLabel(m.config.Theme)),
-		renderSettingLine(m.settingsCursor == settingsFont, "Timer font", fontLabel(m.config.Font)),
-		renderSettingLine(m.settingsCursor == settingsQuietStart, "Quiet start", hourLabel(m.config.QuietHoursStart)),
-		renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd)),
+	leftColumn := strings.Join([]string{
+		renderSettingsSection(m.config, "Theme", []string{
+			renderSettingLine(m.settingsCursor == settingsTheme, "Theme", themeLabel(m.config.Theme)),
+		}),
+		renderSettingsSection(m.config, "Typography", []string{
+			renderSettingLine(m.settingsCursor == settingsFont, "Timer font", fontLabel(m.config.Font)),
+		}),
+		renderSettingsSection(m.config, "Notifications", []string{
+			renderSettingLine(m.settingsCursor == settingsNotifications, "Notifications", boolLabel(m.config.Notifications)),
+			renderSettingLine(m.settingsCursor == settingsDesktop, "Desktop notifications", boolLabel(m.config.DesktopNotifications)),
+			renderSettingLine(m.settingsCursor == settingsWorkComplete, "Work complete", boolLabel(m.config.NotifyWorkComplete)),
+			renderSettingLine(m.settingsCursor == settingsBreakComplete, "Break complete", boolLabel(m.config.NotifyBreakComplete)),
+			renderSettingLine(m.settingsCursor == settingsSessionStart, "Session start", boolLabel(m.config.NotifySessionStart)),
+			renderSettingLine(m.settingsCursor == settingsSessionEnd, "Session end", boolLabel(m.config.NotifySessionEnd)),
+			renderSettingLine(m.settingsCursor == settingsPauseResume, "Pause/resume", boolLabel(m.config.NotifyPauseResume)),
+			renderSettingLine(m.settingsCursor == settingsEndingSoon, "Ending soon", boolLabel(m.config.NotifyEndingSoon)),
+		}),
+		renderSettingsSection(m.config, "Quiet Hours", []string{
+			renderSettingLine(m.settingsCursor == settingsQuietStart, "Quiet start", hourLabel(m.config.QuietHoursStart)),
+			renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd)),
+		}),
+	}, "\n\n")
+
+	rightColumn := renderSettingsPreview(m)
+
+	var body string
+	if m.width >= 110 {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, "    ", rightColumn)
+	} else {
+		body = leftColumn + "\n\n" + rightColumn
 	}
 
-	preview := renderSettingsPreview(m)
+	hints := renderSettingsHintRow(m)
 
-	block := fmt.Sprintf(`%s
+	block := renderBanner(m.config) + "\n\n" +
+		"╭─────────────────────────────────────╮\n" +
+		"│  Notification Settings              │\n" +
+		"╰─────────────────────────────────────╯\n\n" +
+		body + "\n\n" +
+		hints + "\n\n" +
+		footer
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
 
-╭─────────────────────────────────────╮
-│  Notification Settings              │
+func renderSettingsSection(cfg Config, title string, lines []string) string {
+	theme := activeTheme(cfg)
+	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.accent)).Render(title)
+	return fmt.Sprintf(`╭─────────────────────────────────────╮
+│  %s
 ╰─────────────────────────────────────╯
 
-%s
-
-%s
-
-%s`, renderBanner(m.config), strings.Join(items, "\n"), preview, footer)
-	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+%s`, header, strings.Join(lines, "\n"))
 }
 
 func renderSettingsPreview(m model) string {
@@ -1633,25 +1656,37 @@ func renderSettingsPreview(m model) string {
 	font := activeFont(m.config)
 	timer := renderASCIITimer("08:45", m.config)
 	lines := strings.Split(timer, "\n")
-	if len(lines) > 3 {
-		lines = lines[:3]
+	if len(lines) > 5 {
+		lines = lines[:5]
 	}
 
-	themeLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.accent)).Render("Theme preview")
-	fontLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.primary)).Render("Font preview")
-	sampleText := fmt.Sprintf("Theme: %s  Font: %s", themeLabel(m.config.Theme), font.label)
+	themeLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.accent)).Render("Theme: " + themeLabel(m.config.Theme))
+	fontLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.primary)).Render("Font: " + font.label)
 	timerBlock := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.accent)).Render(strings.Join(lines, "\n"))
 
 	return fmt.Sprintf(`╭─────────────────────────────────────╮
-│  Live Preview                      │
+│  Live Preview                       │
 ╰─────────────────────────────────────╯
 
 %s
 %s
 
-%s
+%s`, themeLine, fontLine, timerBlock)
+}
 
-%s`, themeLine, fontLine, sampleText, timerBlock)
+func renderSettingsHintRow(m model) string {
+	switch m.settingsCursor {
+	case settingsTheme:
+		return "Theme: Left/Right cycles presets. Space also cycles."
+	case settingsFont:
+		return "Typography: Left/Right cycles timer fonts. Space also cycles."
+	case settingsQuietStart, settingsQuietEnd:
+		return "Quiet hours: Left/Right adjusts the hour."
+	case settingsNotifications, settingsDesktop, settingsWorkComplete, settingsBreakComplete, settingsSessionStart, settingsSessionEnd, settingsPauseResume, settingsEndingSoon:
+		return "Toggles: Space, Enter, or Left/Right flips the setting."
+	default:
+		return "Use Tab to move between sections."
+	}
 }
 
 func renderSettingLine(selected bool, label, value string) string {
