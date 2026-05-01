@@ -5,7 +5,8 @@ Kairu reads kairu.yaml and .env from the project root. Missing files are allowed
 YAML (kairu.yaml):
 - work_duration (int, minutes) — default 25
 - break_duration (int, minutes) — default 5
-- font (string) — default "ansi" (reserved for future font options)
+- theme (string) — default "forest" (`forest`, `ocean`, `ember`, `mono`)
+- font (string) — default "ansi" (`ansi`, `block`, `thin`)
 - notifications (bool) — master switch for notifications
 - desktop_notifications (bool) — enable local desktop notifications
 - notify_work_complete (bool) — notify when a work session ends
@@ -33,6 +34,7 @@ Storage:
 - notification_outbox.json stores pending notification retries
 - Quiet hours are disabled when start/end are unset or invalid
 - Notification settings changed in the app are saved back to kairu.yaml
+- Theme and font changes made in the app are saved back to kairu.yaml
 
 Keyboard:
 - Tab switches views/fields

@@ -28,6 +28,7 @@ type Config struct {
 	WorkDuration         int    `yaml:"work_duration"`
 	BreakDuration        int    `yaml:"break_duration"`
 	Font                 string `yaml:"font"`
+	Theme                string `yaml:"theme"`
 	Notifications        bool   `yaml:"notifications"`
 	DesktopNotifications bool   `yaml:"desktop_notifications"`
 	NotifyWorkComplete   bool   `yaml:"notify_work_complete"`
@@ -49,6 +50,7 @@ var defaultConfig = Config{
 	WorkDuration:         25,
 	BreakDuration:        5,
 	Font:                 "ansi",
+	Theme:                "forest",
 	Notifications:        false,
 	DesktopNotifications: true,
 	NotifyWorkComplete:   true,
@@ -299,10 +301,86 @@ const (
 	settingsSessionEnd
 	settingsPauseResume
 	settingsEndingSoon
+	settingsTheme
+	settingsFont
 	settingsQuietStart
 	settingsQuietEnd
 	settingsCount
 )
+
+type themeStyle struct {
+	accent  string
+	primary string
+	notice  string
+	warning string
+}
+
+var themeStyles = map[string]themeStyle{
+	"forest": {accent: "10", primary: "2", notice: "3", warning: "1"},
+	"ocean":  {accent: "14", primary: "6", notice: "12", warning: "9"},
+	"ember":  {accent: "208", primary: "214", notice: "220", warning: "196"},
+	"mono":   {accent: "15", primary: "7", notice: "8", warning: "9"},
+}
+
+var themeOrder = []string{"forest", "ocean", "ember", "mono"}
+
+type timerFont struct {
+	digits map[rune][]string
+	label  string
+}
+
+var timerFonts = map[string]timerFont{
+	"ansi": {
+		label: "ANSI",
+		digits: map[rune][]string{
+			'0': {"███", "█ █", "█ █", "█ █", "███"},
+			'1': {" █ ", "██ ", " █ ", " █ ", "███"},
+			'2': {"███", "  █", "███", "█  ", "███"},
+			'3': {"███", "  █", "███", "  █", "███"},
+			'4': {"█ █", "█ █", "███", "  █", "  █"},
+			'5': {"███", "█  ", "███", "  █", "███"},
+			'6': {"███", "█  ", "███", "█ █", "███"},
+			'7': {"███", "  █", "  █", "  █", "  █"},
+			'8': {"███", "█ █", "███", "█ █", "███"},
+			'9': {"███", "█ █", "███", "  █", "███"},
+			':': {"   ", " █ ", "   ", " █ ", "   "},
+		},
+	},
+	"block": {
+		label: "Block",
+		digits: map[rune][]string{
+			'0': {"████", "█  █", "█  █", "█  █", "████"},
+			'1': {" ██ ", "███ ", " ██ ", " ██ ", "████"},
+			'2': {"████", "   █", "████", "█   ", "████"},
+			'3': {"████", "   █", "████", "   █", "████"},
+			'4': {"█  █", "█  █", "████", "   █", "   █"},
+			'5': {"████", "█   ", "████", "   █", "████"},
+			'6': {"████", "█   ", "████", "█  █", "████"},
+			'7': {"████", "   █", "   █", "   █", "   █"},
+			'8': {"████", "█  █", "████", "█  █", "████"},
+			'9': {"████", "█  █", "████", "   █", "████"},
+			':': {"    ", " ██ ", "    ", " ██ ", "    "},
+		},
+	},
+	"thin": {
+		label: "Thin",
+		digits: map[rune][]string{
+			'0': {"┌─┐", "│ │", "│ │", "│ │", "└─┘"},
+			'1': {" ╷ ", " │ ", " │ ", " │ ", "─┴─"},
+			'2': {"┌─┐", "  ┤", "┌─┘", "│  ", "└─┘"},
+			'3': {"┌─┐", "  ┤", "┌─┘", "  ┤", "└─┘"},
+			'4': {"│ │", "│ │", "└─┤", "  │", "  │"},
+			'5': {"┌─┐", "│  ", "└─┐", "  ┤", "└─┘"},
+			'6': {"┌─┐", "│  ", "├─┐", "│ │", "└─┘"},
+			'7': {"┌─┐", "  │", "  │", "  │", "  │"},
+			'8': {"┌─┐", "│ │", "├─┤", "│ │", "└─┘"},
+			'9': {"┌─┐", "│ │", "└─┤", "  │", "└─┘"},
+			':': {"   ", " ║ ", "   ", " ║ ", "   "},
+		},
+	},
+}
+
+var fontOrder = []string{"ansi", "block", "thin"}
 
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickTockMsg(t) })
@@ -732,6 +810,10 @@ func (m *model) toggleSetting() {
 		m.config.NotifyPauseResume = !m.config.NotifyPauseResume
 	case settingsEndingSoon:
 		m.config.NotifyEndingSoon = !m.config.NotifyEndingSoon
+	case settingsTheme:
+		m.config.Theme = nextValue(themeOrder, m.config.Theme, 1)
+	case settingsFont:
+		m.config.Font = nextValue(fontOrder, m.config.Font, 1)
 	}
 	if err := saveConfigFile(m.configFile, m.config); err != nil {
 		m.setAppError(err, "Failed to save config")
@@ -740,6 +822,10 @@ func (m *model) toggleSetting() {
 
 func (m *model) adjustSetting(delta int) {
 	switch m.settingsCursor {
+	case settingsTheme:
+		m.config.Theme = nextValue(themeOrder, m.config.Theme, delta)
+	case settingsFont:
+		m.config.Font = nextValue(fontOrder, m.config.Font, delta)
 	case settingsQuietStart:
 		m.config.QuietHoursStart = wrapHour(m.config.QuietHoursStart + delta)
 	case settingsQuietEnd:
@@ -906,6 +992,72 @@ func (m model) eventEnabled(event string) bool {
 	default:
 		return false
 	}
+}
+
+func normalizeTheme(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, candidate := range themeOrder {
+		if candidate == name {
+			return candidate
+		}
+	}
+	return defaultConfig.Theme
+}
+
+func normalizeFont(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, candidate := range fontOrder {
+		if candidate == name {
+			return candidate
+		}
+	}
+	return defaultConfig.Font
+}
+
+func activeTheme(cfg Config) themeStyle {
+	if theme, ok := themeStyles[normalizeTheme(cfg.Theme)]; ok {
+		return theme
+	}
+	return themeStyles[defaultConfig.Theme]
+}
+
+func activeFont(cfg Config) timerFont {
+	if font, ok := timerFonts[normalizeFont(cfg.Font)]; ok {
+		return font
+	}
+	return timerFonts[defaultConfig.Font]
+}
+
+func themedStyle(cfg Config, color string) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+}
+
+func nextValue(order []string, current string, delta int) string {
+	if len(order) == 0 {
+		return current
+	}
+	current = strings.ToLower(strings.TrimSpace(current))
+	index := 0
+	for i, candidate := range order {
+		if candidate == current {
+			index = i
+			break
+		}
+	}
+	next := (index + delta) % len(order)
+	if next < 0 {
+		next += len(order)
+	}
+	return order[next]
+}
+
+func themeLabel(name string) string {
+	return strings.Title(normalizeTheme(name))
+}
+
+func fontLabel(name string) string {
+	font := activeFont(Config{Font: normalizeFont(name)})
+	return font.label
 }
 
 func (m model) quietHoursActive(now time.Time) bool {
@@ -1248,14 +1400,14 @@ func renderAppError(m model) string {
 	if strings.TrimSpace(m.appError) == "" {
 		return ""
 	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.appError)
+	return themedStyle(m.config, activeTheme(m.config).warning).Render(m.appError)
 }
 
 func renderNotificationStatus(m model) string {
 	if strings.TrimSpace(m.notificationStatus) == "" {
 		return ""
 	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(m.notificationStatus)
+	return themedStyle(m.config, activeTheme(m.config).primary).Render(m.notificationStatus)
 }
 
 func renderInputView(m model) string {
@@ -1299,12 +1451,13 @@ Elapsed: %s
 
 %s
 
-[Enter] Apply   [Esc] Cancel   [?] Help   [q] Quit`, renderBanner(), m.taskName, elapsed, m.durationInput.View(), errorBlock)
+	[Enter] Apply   [Esc] Cancel   [?] Help   [q] Quit`, renderBanner(m.config), m.taskName, elapsed, m.durationInput.View(), errorBlock)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderTimerView(m model) string {
 	timeStr := formatClock(m.seconds)
+	theme := activeTheme(m.config)
 
 	modeStr := "WORK"
 	if m.mode == "break" {
@@ -1334,12 +1487,12 @@ func renderTimerView(m model) string {
 	}
 
 	header := fmt.Sprintf("%s • %s", modeStr, m.taskName)
-	ascii := renderASCIITimer(timeStr)
+	ascii := renderASCIITimer(timeStr, m.config)
 	innerWidth := lipgloss.Width(progress)
 	if asciiWidth := lipgloss.Width(ascii); asciiWidth > innerWidth {
 		innerWidth = asciiWidth
 	}
-	ascii = lipgloss.NewStyle().Width(innerWidth).Align(lipgloss.Center).Render(ascii)
+	ascii = themedStyle(m.config, theme.accent).Width(innerWidth).Align(lipgloss.Center).Render(ascii)
 	timerFrame := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		Padding(0, 1).
@@ -1362,21 +1515,8 @@ func renderTimerView(m model) string {
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
-func renderASCIITimer(timeStr string) string {
-	chars := map[rune][]string{
-		'0': {"███", "█ █", "█ █", "█ █", "███"},
-		'1': {" █ ", "██ ", " █ ", " █ ", "███"},
-		'2': {"███", "  █", "███", "█  ", "███"},
-		'3': {"███", "  █", "███", "  █", "███"},
-		'4': {"█ █", "█ █", "███", "  █", "  █"},
-		'5': {"███", "█  ", "███", "  █", "███"},
-		'6': {"███", "█  ", "███", "█ █", "███"},
-		'7': {"███", "  █", "  █", "  █", "  █"},
-		'8': {"███", "█ █", "███", "█ █", "███"},
-		'9': {"███", "█ █", "███", "  █", "███"},
-		':': {"   ", " █ ", "   ", " █ ", "   "},
-	}
-
+func renderASCIITimer(timeStr string, cfg Config) string {
+	chars := activeFont(cfg).digits
 	lines := make([]string, 5)
 	for _, ch := range timeStr {
 		if art, ok := chars[ch]; ok {
@@ -1447,7 +1587,7 @@ Weekly Activity (7 days):
 }
 
 func renderSettingsView(m model) string {
-	footer := "[Tab] Switch   [Space] Toggle   [Left/Right] Quiet hours   [Esc] Back   [q] Quit"
+	footer := "[Tab] Switch   [Space] Toggle   [Left/Right] Adjust   [Esc] Back   [q] Quit"
 	errorLine := renderAppError(m)
 	statusLine := renderNotificationStatus(m)
 	if errorLine != "" {
@@ -1466,6 +1606,8 @@ func renderSettingsView(m model) string {
 		renderSettingLine(m.settingsCursor == settingsSessionEnd, "Session end", boolLabel(m.config.NotifySessionEnd)),
 		renderSettingLine(m.settingsCursor == settingsPauseResume, "Pause/resume", boolLabel(m.config.NotifyPauseResume)),
 		renderSettingLine(m.settingsCursor == settingsEndingSoon, "Ending soon", boolLabel(m.config.NotifyEndingSoon)),
+		renderSettingLine(m.settingsCursor == settingsTheme, "Theme", themeLabel(m.config.Theme)),
+		renderSettingLine(m.settingsCursor == settingsFont, "Timer font", fontLabel(m.config.Font)),
 		renderSettingLine(m.settingsCursor == settingsQuietStart, "Quiet start", hourLabel(m.config.QuietHoursStart)),
 		renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd)),
 	}
@@ -1478,7 +1620,7 @@ func renderSettingsView(m model) string {
 
 %s
 
-%s`, renderBanner(), strings.Join(items, "\n"), footer)
+%s`, renderBanner(m.config), strings.Join(items, "\n"), footer)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
@@ -1546,7 +1688,7 @@ func renderHelpView(m model) string {
 
 %s
 
-%s`, renderBanner(), body, footer)
+%s`, renderBanner(m.config), body, footer)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
@@ -1567,7 +1709,7 @@ func renderFatalView(m model) string {
 
 %s
 
-[q] Quit`, renderBanner(), message)
+[q] Quit`, renderBanner(m.config), message)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
@@ -1698,8 +1840,8 @@ func formatDuration(seconds int) string {
 	return "0m"
 }
 
-func renderBanner() string {
-	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10")).Padding(0, 2).Render("🌳  KAIRU  •  Grow Your Focus  🌳")
+func renderBanner(cfg Config) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(activeTheme(cfg).accent)).Padding(0, 2).Render("KAIRU  •  Grow Your Focus")
 }
 
 func main() {

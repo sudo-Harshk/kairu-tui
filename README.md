@@ -14,6 +14,7 @@ A TUI time tracker inspired by Pomodoro technique with ASCII art timer and activ
 - **In-app Error Messages** - Runtime issues surface inside the UI
 - **Work/Break Cycles** - Pomodoro-style productivity
 - **Activity Dashboard** - Track streaks, ratios, and totals
+- **Theme and Font Customization** - Switch color themes and timer styles in-app
 - **Local Storage** - All data stays on your machine
 - **Session Chaining** - Seamless workflow between tasks
 
@@ -49,6 +50,7 @@ Create kairu.yaml in the project root and optionally .env for secrets. See full 
 ```bash
 work_duration: 25
 break_duration: 5
+theme: forest
 font: ansi
 notifications: false
 desktop_notifications: true
@@ -64,6 +66,10 @@ sound_command: ""
 auto_break: false
 sessions_before_break: 4
 ```
+
+Theme options: `forest`, `ocean`, `ember`, `mono`
+
+Font options: `ansi`, `block`, `thin`
 
 Environment variables for Telegram delivery only (optional):
 
