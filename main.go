@@ -1612,6 +1612,8 @@ func renderSettingsView(m model) string {
 		renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd)),
 	}
 
+	preview := renderSettingsPreview(m)
+
 	block := fmt.Sprintf(`%s
 
 ╭─────────────────────────────────────╮
@@ -1620,8 +1622,36 @@ func renderSettingsView(m model) string {
 
 %s
 
-%s`, renderBanner(m.config), strings.Join(items, "\n"), footer)
+%s
+
+%s`, renderBanner(m.config), strings.Join(items, "\n"), preview, footer)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
+
+func renderSettingsPreview(m model) string {
+	theme := activeTheme(m.config)
+	font := activeFont(m.config)
+	timer := renderASCIITimer("08:45", m.config)
+	lines := strings.Split(timer, "\n")
+	if len(lines) > 3 {
+		lines = lines[:3]
+	}
+
+	themeLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.accent)).Render("Theme preview")
+	fontLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.primary)).Render("Font preview")
+	sampleText := fmt.Sprintf("Theme: %s  Font: %s", themeLabel(m.config.Theme), font.label)
+	timerBlock := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.accent)).Render(strings.Join(lines, "\n"))
+
+	return fmt.Sprintf(`╭─────────────────────────────────────╮
+│  Live Preview                      │
+╰─────────────────────────────────────╯
+
+%s
+%s
+
+%s
+
+%s`, themeLine, fontLine, sampleText, timerBlock)
 }
 
 func renderSettingLine(selected bool, label, value string) string {

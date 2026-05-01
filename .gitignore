@@ -16,3 +16,6 @@ Thumbs.db
 bugs/
 features/
 *txt
+.gocache/
+go-build/
+coverage.out
