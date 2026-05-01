@@ -1670,7 +1670,6 @@ func renderSettingsPreview(m model) string {
 
 %s
 %s
-
 %s`, themeLine, fontLine, timerBlock)
 }
 
