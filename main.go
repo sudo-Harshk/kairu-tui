@@ -127,6 +127,7 @@ type model struct {
 	statsReturnMode    string
 	textInput          textinput.Model
 	durationInput      textinput.Model
+	noteInput          textinput.Model
 	focusedField       int
 	inputError         string
 	appError           string
@@ -161,6 +162,7 @@ type notificationJob struct {
 
 type Entry struct {
 	Task     string    `json:"task"`
+	Note     string    `json:"note,omitempty"`
 	Start    time.Time `json:"start"`
 	End      time.Time `json:"end"`
 	Duration int       `json:"duration_seconds"`
@@ -292,6 +294,7 @@ type outboxFlushedMsg struct {
 const (
 	focusTask = iota
 	focusDuration
+	focusNote
 )
 
 const (
@@ -590,8 +593,15 @@ func (m model) setInputFocus(field int) model {
 	if field == focusTask {
 		m.textInput.Focus()
 		m.durationInput.Blur()
+		m.noteInput.Blur()
 	} else {
-		m.durationInput.Focus()
+		if field == focusDuration {
+			m.durationInput.Focus()
+			m.noteInput.Blur()
+		} else {
+			m.noteInput.Focus()
+			m.durationInput.Blur()
+		}
 		m.textInput.Blur()
 	}
 	return m
@@ -634,6 +644,8 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.mode == "input" {
 			if m.focusedField == focusTask {
 				m = m.setInputFocus(focusDuration)
+			} else if m.focusedField == focusDuration {
+				m = m.setInputFocus(focusNote)
 			} else {
 				m = m.setInputFocus(focusTask)
 			}
@@ -675,6 +687,14 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		if m.mode == "input" {
+			if m.focusedField == focusTask {
+				m = m.setInputFocus(focusDuration)
+				return m, nil
+			}
+			if m.focusedField == focusDuration {
+				m = m.setInputFocus(focusNote)
+				return m, nil
+			}
 			if strings.TrimSpace(m.textInput.Value()) == "" {
 				m.inputError = "Task name is required."
 				return m, nil
@@ -688,6 +708,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.taskName = strings.TrimSpace(m.textInput.Value())
 			m.textInput.Blur()
 			m.durationInput.Blur()
+			m.noteInput.Blur()
 			m.sessionStart = time.Now()
 			m.running = true
 			m.sessionTarget = durationSeconds
@@ -760,8 +781,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focusedField == focusTask {
 			m.textInput, cmd = m.textInput.Update(msg)
 			m.recentTaskIndex = -1
-		} else {
+		} else if m.focusedField == focusDuration {
 			m.durationInput, cmd = m.durationInput.Update(msg)
+		} else {
+			m.noteInput, cmd = m.noteInput.Update(msg)
 		}
 		if m.inputError != "" {
 			m.inputError = ""
@@ -803,6 +826,7 @@ func (m model) completeSession() (tea.Model, tea.Cmd) {
 	m.running = false
 	m.inputError = ""
 	m.textInput.SetValue("")
+	m.noteInput.SetValue("")
 	m = m.setInputFocus(focusTask)
 	return m, flushCmd
 }
@@ -1317,6 +1341,7 @@ func (m *model) saveSession() tea.Cmd {
 
 	entry := Entry{
 		Task:     m.taskName,
+		Note:     strings.TrimSpace(m.noteInput.Value()),
 		Start:    m.sessionStart,
 		End:      time.Now(),
 		Duration: duration,
@@ -1476,10 +1501,12 @@ func renderInputView(m model) string {
 
 %s
 
+%s
+
 [Tab] Switch Field   [Enter] Start   [?] Help   [q] Quit
 Recent tasks: Up/Down to cycle from history
 
-`, m.textInput.View(), m.durationInput.View(), errorBlock)
+`, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), errorBlock)
 }
 
 func renderEditView(m model) string {
@@ -2010,6 +2037,13 @@ func main() {
 	di.SetValue(fmt.Sprintf("%d", cfg.WorkDuration))
 	di.Blur()
 
+	ni := textinput.New()
+	ni.Placeholder = "Optional note"
+	ni.CharLimit = 120
+	ni.Width = 40
+	ni.Prompt = "Note: "
+	ni.Blur()
+
 	var entryList []Entry
 	if data, err := os.ReadFile(dataFile); err == nil {
 		if err := json.Unmarshal(data, &entryList); err != nil {
@@ -2027,6 +2061,7 @@ func main() {
 		mode:               mode,
 		textInput:          ti,
 		durationInput:      di,
+		noteInput:          ni,
 		focusedField:       focusTask,
 		entries:            entryList,
 		recentTasks:        buildRecentTasks(entryList),

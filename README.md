@@ -11,6 +11,7 @@ A TUI time tracker inspired by Pomodoro technique with ASCII art timer and activ
 - **Notification Settings Panel** - Toggle alerts and quiet hours from inside the app
 - **Keyboard Controls** - Use Tab to switch fields or open stats, Space to pause, E to edit time, S for settings
 - **Recent Task Recall** - Use Up/Down in the task field to reuse recently tracked tasks
+- **Session Notes** - Add an optional note to each session before starting
 - **Help Overlay** - Press ? to view keybindings anytime
 - **In-app Error Messages** - Runtime issues surface inside the UI
 - **Work/Break Cycles** - Pomodoro-style productivity
