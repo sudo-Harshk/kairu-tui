@@ -132,6 +132,8 @@ type model struct {
 	appError           string
 	notificationStatus string
 	taskName           string
+	recentTasks        []string
+	recentTaskIndex    int
 	settingsCursor     int
 	entries            []Entry
 	dataFile           string
@@ -651,6 +653,18 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case "up":
+		if m.mode == "input" && m.focusedField == focusTask && len(m.recentTasks) > 0 {
+			m = m.applyRecentTask(-1)
+			return m, nil
+		}
+
+	case "down":
+		if m.mode == "input" && m.focusedField == focusTask && len(m.recentTasks) > 0 {
+			m = m.applyRecentTask(1)
+			return m, nil
+		}
+
 	case "s":
 		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" {
 			m.settingsReturnMode = m.mode
@@ -745,6 +759,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode == "input" {
 		if m.focusedField == focusTask {
 			m.textInput, cmd = m.textInput.Update(msg)
+			m.recentTaskIndex = -1
 		} else {
 			m.durationInput, cmd = m.durationInput.Update(msg)
 		}
@@ -1329,7 +1344,41 @@ func (m *model) saveSession() tea.Cmd {
 		return nil
 	}
 	m.entries = entries
+	m.recentTasks = buildRecentTasks(entries)
+	m.recentTaskIndex = -1
 	return nil
+}
+
+func buildRecentTasks(entries []Entry) []string {
+	seen := make(map[string]struct{})
+	recent := make([]string, 0, len(entries))
+	for i := len(entries) - 1; i >= 0; i-- {
+		task := strings.TrimSpace(entries[i].Task)
+		if task == "" {
+			continue
+		}
+		key := strings.ToLower(task)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		recent = append(recent, task)
+	}
+	return recent
+}
+
+func (m model) applyRecentTask(delta int) model {
+	if len(m.recentTasks) == 0 {
+		return m
+	}
+	if m.recentTaskIndex < 0 || m.recentTaskIndex >= len(m.recentTasks) {
+		m.recentTaskIndex = 0
+	} else {
+		m.recentTaskIndex = (m.recentTaskIndex + delta + len(m.recentTasks)) % len(m.recentTasks)
+	}
+	m.textInput.SetValue(m.recentTasks[m.recentTaskIndex])
+	m.textInput.CursorEnd()
+	return m
 }
 
 func sendTelegramMessage(token, chatID, text string) error {
@@ -1428,6 +1477,8 @@ func renderInputView(m model) string {
 %s
 
 [Tab] Switch Field   [Enter] Start   [?] Help   [q] Quit
+Recent tasks: Up/Down to cycle from history
+
 `, m.textInput.View(), m.durationInput.View(), errorBlock)
 }
 
@@ -1978,6 +2029,8 @@ func main() {
 		durationInput:      di,
 		focusedField:       focusTask,
 		entries:            entryList,
+		recentTasks:        buildRecentTasks(entryList),
+		recentTaskIndex:    -1,
 		dataFile:           dataFile,
 		configFile:         "kairu.yaml",
 		config:             cfg,

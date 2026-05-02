@@ -10,6 +10,7 @@ Input mode:
 - Type a task name
 - Enter duration in minutes (e.g., 25) or hh:mm (e.g., 1:00)
 - Press Enter to start, Tab to switch fields
+- Use Up/Down in the task field to cycle through recent tasks
 - Press ? to open the help overlay
 
 Timer mode:
