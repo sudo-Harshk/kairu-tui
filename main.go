@@ -128,6 +128,7 @@ type model struct {
 	textInput          textinput.Model
 	durationInput      textinput.Model
 	noteInput          textinput.Model
+	tagInput           textinput.Model
 	focusedField       int
 	inputError         string
 	appError           string
@@ -163,6 +164,7 @@ type notificationJob struct {
 type Entry struct {
 	Task     string    `json:"task"`
 	Note     string    `json:"note,omitempty"`
+	Tags     []string  `json:"tags,omitempty"`
 	Start    time.Time `json:"start"`
 	End      time.Time `json:"end"`
 	Duration int       `json:"duration_seconds"`
@@ -295,6 +297,7 @@ const (
 	focusTask = iota
 	focusDuration
 	focusNote
+	focusTags
 )
 
 const (
@@ -590,19 +593,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) setInputFocus(field int) model {
 	m.focusedField = field
-	if field == focusTask {
+	m.textInput.Blur()
+	m.durationInput.Blur()
+	m.noteInput.Blur()
+	m.tagInput.Blur()
+	switch field {
+	case focusTask:
 		m.textInput.Focus()
-		m.durationInput.Blur()
-		m.noteInput.Blur()
-	} else {
-		if field == focusDuration {
-			m.durationInput.Focus()
-			m.noteInput.Blur()
-		} else {
-			m.noteInput.Focus()
-			m.durationInput.Blur()
-		}
-		m.textInput.Blur()
+	case focusDuration:
+		m.durationInput.Focus()
+	case focusNote:
+		m.noteInput.Focus()
+	case focusTags:
+		m.tagInput.Focus()
 	}
 	return m
 }
@@ -646,6 +649,8 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m = m.setInputFocus(focusDuration)
 			} else if m.focusedField == focusDuration {
 				m = m.setInputFocus(focusNote)
+			} else if m.focusedField == focusNote {
+				m = m.setInputFocus(focusTags)
 			} else {
 				m = m.setInputFocus(focusTask)
 			}
@@ -695,6 +700,34 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m = m.setInputFocus(focusNote)
 				return m, nil
 			}
+			if m.focusedField == focusNote {
+				m = m.setInputFocus(focusTags)
+				return m, nil
+			}
+			if m.focusedField == focusTags {
+				if strings.TrimSpace(m.textInput.Value()) == "" {
+					m.inputError = "Task name is required."
+					return m, nil
+				}
+				durationSeconds, err := parseDurationInput(m.durationInput.Value())
+				if err != nil {
+					m.inputError = err.Error()
+					return m, nil
+				}
+				m.mode = "timer"
+				m.taskName = strings.TrimSpace(m.textInput.Value())
+				m.textInput.Blur()
+				m.durationInput.Blur()
+				m.noteInput.Blur()
+				m.tagInput.Blur()
+				m.sessionStart = time.Now()
+				m.running = true
+				m.sessionTarget = durationSeconds
+				m.seconds = durationSeconds
+				m.sessionElapsed = 0
+				m.inputError = ""
+				return m, tea.Batch(tickCmd(), m.notifyCmd("session_start"))
+			}
 			if strings.TrimSpace(m.textInput.Value()) == "" {
 				m.inputError = "Task name is required."
 				return m, nil
@@ -709,6 +742,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.textInput.Blur()
 			m.durationInput.Blur()
 			m.noteInput.Blur()
+			m.tagInput.Blur()
 			m.sessionStart = time.Now()
 			m.running = true
 			m.sessionTarget = durationSeconds
@@ -783,8 +817,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.recentTaskIndex = -1
 		} else if m.focusedField == focusDuration {
 			m.durationInput, cmd = m.durationInput.Update(msg)
-		} else {
+		} else if m.focusedField == focusNote {
 			m.noteInput, cmd = m.noteInput.Update(msg)
+		} else {
+			m.tagInput, cmd = m.tagInput.Update(msg)
 		}
 		if m.inputError != "" {
 			m.inputError = ""
@@ -827,8 +863,69 @@ func (m model) completeSession() (tea.Model, tea.Cmd) {
 	m.inputError = ""
 	m.textInput.SetValue("")
 	m.noteInput.SetValue("")
+	m.tagInput.SetValue("")
 	m = m.setInputFocus(focusTask)
 	return m, flushCmd
+}
+
+func parseTags(input string) []string {
+	parts := strings.Split(input, ",")
+	tags := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		tag := strings.ToLower(strings.TrimSpace(part))
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		tags = append(tags, tag)
+	}
+	return tags
+}
+
+func (m model) currentSessionTags() []string {
+	if m.tagInput.Value() == "" {
+		return nil
+	}
+	return parseTags(m.tagInput.Value())
+}
+
+func renderTopTags(entries []Entry) string {
+	counts := make(map[string]int)
+	for _, entry := range entries {
+		for _, tag := range entry.Tags {
+			counts[strings.ToLower(strings.TrimSpace(tag))]++
+		}
+	}
+	if len(counts) == 0 {
+		return "Tags: none yet"
+	}
+	type tagCount struct {
+		tag   string
+		count int
+	}
+	items := make([]tagCount, 0, len(counts))
+	for tag, count := range counts {
+		items = append(items, tagCount{tag: tag, count: count})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].count == items[j].count {
+			return items[i].tag < items[j].tag
+		}
+		return items[i].count > items[j].count
+	})
+	limit := 3
+	if len(items) < limit {
+		limit = len(items)
+	}
+	parts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		parts = append(parts, fmt.Sprintf("%s (%d)", items[i].tag, items[i].count))
+	}
+	return "Top tags: " + strings.Join(parts, ", ")
 }
 
 func (m *model) toggleSetting() {
@@ -1342,6 +1439,7 @@ func (m *model) saveSession() tea.Cmd {
 	entry := Entry{
 		Task:     m.taskName,
 		Note:     strings.TrimSpace(m.noteInput.Value()),
+		Tags:     parseTags(m.tagInput.Value()),
 		Start:    m.sessionStart,
 		End:      time.Now(),
 		Duration: duration,
@@ -1503,10 +1601,12 @@ func renderInputView(m model) string {
 
 %s
 
+%s
+
 [Tab] Switch Field   [Enter] Start   [?] Help   [q] Quit
 Recent tasks: Up/Down to cycle from history
 
-`, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), errorBlock)
+`, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), m.tagInput.View(), errorBlock)
 }
 
 func renderEditView(m model) string {
@@ -1565,6 +1665,9 @@ func renderTimerView(m model) string {
 	}
 
 	header := fmt.Sprintf("%s • %s", modeStr, m.taskName)
+	if tags := strings.Join(m.currentSessionTags(), ", "); tags != "" {
+		header += fmt.Sprintf(" [%s]", tags)
+	}
 	ascii := renderASCIITimer(timeStr, m.config)
 	innerWidth := lipgloss.Width(progress)
 	if asciiWidth := lipgloss.Width(ascii); asciiWidth > innerWidth {
@@ -1617,6 +1720,7 @@ func renderStatsView(m model) string {
 	if len(m.entries) == 0 {
 		emptyMessage = "No sessions yet. Start a focus session to see stats."
 	}
+	tagSummary := renderTopTags(m.entries)
 
 	workRatio := 0
 	total := m.totalWorkTime + m.totalBreakTime
@@ -1661,7 +1765,9 @@ Weekly Activity (7 days):
 %s
 
 %s
-`, daily, current, longest, workRatio, 100-workRatio, emptyMessage, barChart, footer)
+
+%s
+`, daily, current, longest, workRatio, 100-workRatio, emptyMessage, tagSummary, barChart, footer)
 }
 
 func renderSettingsView(m model) string {
@@ -2044,6 +2150,13 @@ func main() {
 	ni.Prompt = "Note: "
 	ni.Blur()
 
+	gi := textinput.New()
+	gi.Placeholder = "Optional tags, comma separated"
+	gi.CharLimit = 120
+	gi.Width = 40
+	gi.Prompt = "Tags: "
+	gi.Blur()
+
 	var entryList []Entry
 	if data, err := os.ReadFile(dataFile); err == nil {
 		if err := json.Unmarshal(data, &entryList); err != nil {
@@ -2062,6 +2175,7 @@ func main() {
 		textInput:          ti,
 		durationInput:      di,
 		noteInput:          ni,
+		tagInput:           gi,
 		focusedField:       focusTask,
 		entries:            entryList,
 		recentTasks:        buildRecentTasks(entryList),
