@@ -419,6 +419,59 @@ func TestSaveCurrentTemplateUpserts(t *testing.T) {
 	}
 }
 
+func TestRenameSelectedTemplate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "templates.json")
+	m := model{
+		textInput:     textInputWithValue("Renamed"),
+		durationInput: textInputWithValue("30"),
+		noteInput:     textInputWithValue("Updated note"),
+		tagInput:      textInputWithValue("focus, writing"),
+		templateFile:  path,
+		templates: []SessionTemplate{
+			{Name: "Old", Task: "Old", Duration: "15"},
+		},
+		templateIndex: 0,
+	}
+
+	if err := m.renameSelectedTemplate(); err != nil {
+		t.Fatalf("renameSelectedTemplate failed: %v", err)
+	}
+	if got := m.templates[0].Name; got != "Renamed" {
+		t.Fatalf("template name got %q, want %q", got, "Renamed")
+	}
+	if got := m.templates[0].Duration; got != "30" {
+		t.Fatalf("template duration got %q, want %q", got, "30")
+	}
+}
+
+func TestDeleteSelectedTemplate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "templates.json")
+	m := model{
+		templateFile: path,
+		templates: []SessionTemplate{
+			{Name: "One", Task: "One", Duration: "15"},
+			{Name: "Two", Task: "Two", Duration: "30"},
+		},
+		templateIndex: 0,
+	}
+
+	if err := m.deleteSelectedTemplate(); err != nil {
+		t.Fatalf("deleteSelectedTemplate failed: %v", err)
+	}
+	if len(m.templates) != 1 {
+		t.Fatalf("expected 1 template after delete, got %d", len(m.templates))
+	}
+	if got := m.templates[0].Name; got != "Two" {
+		t.Fatalf("remaining template got %q, want %q", got, "Two")
+	}
+}
+
 func textInputWithValue(value string) textinput.Model {
 	ti := textinput.New()
 	ti.SetValue(value)

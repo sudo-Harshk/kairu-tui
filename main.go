@@ -743,6 +743,22 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case "ctrl+r":
+		if m.mode == "input" && m.focusedField == focusTemplate {
+			if err := m.renameSelectedTemplate(); err != nil {
+				m.setAppError(err, "Failed to rename template")
+			}
+			return m, nil
+		}
+
+	case "ctrl+d":
+		if m.mode == "input" && m.focusedField == focusTemplate {
+			if err := m.deleteSelectedTemplate(); err != nil {
+				m.setAppError(err, "Failed to delete template")
+			}
+			return m, nil
+		}
+
 	case "s":
 		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" {
 			m.settingsReturnMode = m.mode
@@ -1633,6 +1649,50 @@ func (m *model) saveCurrentTemplate() error {
 		return err
 	}
 	m.notificationStatus = fmt.Sprintf("Saved template: %s", task)
+	return nil
+}
+
+func (m *model) renameSelectedTemplate() error {
+	template, ok := m.currentTemplate()
+	if !ok {
+		return fmt.Errorf("no template selected")
+	}
+	newName := strings.TrimSpace(m.textInput.Value())
+	if newName == "" {
+		return fmt.Errorf("task name is required before renaming a template")
+	}
+	template.Name = newName
+	template.Task = newName
+	template.Duration = strings.TrimSpace(m.durationInput.Value())
+	template.Note = strings.TrimSpace(m.noteInput.Value())
+	template.Tags = parseTags(m.tagInput.Value())
+	m.templates[m.templateIndex] = template
+	if err := saveSessionTemplates(m.templateFile, m.templates); err != nil {
+		return err
+	}
+	m.notificationStatus = fmt.Sprintf("Renamed template to: %s", newName)
+	return nil
+}
+
+func (m *model) deleteSelectedTemplate() error {
+	if len(m.templates) == 0 || m.templateIndex < 0 || m.templateIndex >= len(m.templates) {
+		return fmt.Errorf("no template selected")
+	}
+	removed := m.templates[m.templateIndex]
+	m.templates = append(m.templates[:m.templateIndex], m.templates[m.templateIndex+1:]...)
+	if len(m.templates) == 0 {
+		m.templateIndex = 0
+	} else if m.templateIndex >= len(m.templates) {
+		m.templateIndex = len(m.templates) - 1
+	}
+	if err := saveSessionTemplates(m.templateFile, m.templates); err != nil {
+		return err
+	}
+	if len(m.templates) > 0 {
+		updated := m.applySelectedTemplate()
+		*m = updated
+	}
+	m.notificationStatus = fmt.Sprintf("Deleted template: %s", removed.Name)
 	return nil
 }
 

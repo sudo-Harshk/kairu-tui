@@ -16,6 +16,8 @@ Input mode:
 - Tab switches fields
 - Use Up/Down in the task field to cycle through recent tasks
 - Press Ctrl+T to save the current form as a reusable template
+- Press Ctrl+R to rename the selected template using the current task name
+- Press Ctrl+D to delete the selected template
 - Press ? to open the help overlay
 
 Timer mode:

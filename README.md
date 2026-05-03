@@ -14,6 +14,7 @@ A TUI time tracker inspired by Pomodoro technique with ASCII art timer and activ
 - **Session Notes** - Add an optional note to each session before starting
 - **Task Tags** - Add comma-separated tags to sessions for lighter grouping
 - **Session Templates** - Save and reuse preset task setups with one shortcut
+- **Template Rename/Delete** - Update or remove saved presets from the input screen
 - **Help Overlay** - Press ? to view keybindings anytime
 - **In-app Error Messages** - Runtime issues surface inside the UI
 - **Work/Break Cycles** - Pomodoro-style productivity
