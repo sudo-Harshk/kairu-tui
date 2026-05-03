@@ -203,6 +203,35 @@ func TestCalculateStreaks(t *testing.T) {
 	})
 }
 
+func TestComputeStreakState(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	loc := now.Location()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, loc)
+	yesterday := today.AddDate(0, 0, -1)
+	twoDaysAgo := today.AddDate(0, 0, -2)
+
+	entries := []Entry{
+		{Task: "a", Start: twoDaysAgo, End: twoDaysAgo.Add(30 * time.Minute), Duration: 1800, Type: "work"},
+		{Task: "b", Start: yesterday, End: yesterday.Add(30 * time.Minute), Duration: 1800, Type: "work"},
+	}
+
+	streak := computeStreakState(entries)
+	if streak.Current != 0 {
+		t.Fatalf("expected current streak 0, got %d", streak.Current)
+	}
+	if streak.Best != 2 {
+		t.Fatalf("expected best streak 2, got %d", streak.Best)
+	}
+	if !streak.RecoveryAvailable {
+		t.Fatalf("expected recovery to be available")
+	}
+	if !streak.RecoveryNeeded {
+		t.Fatalf("expected recovery to be needed")
+	}
+}
+
 func TestDateKeyUsesLocal(t *testing.T) {
 	t.Parallel()
 

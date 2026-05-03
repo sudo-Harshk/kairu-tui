@@ -150,6 +150,7 @@ type model struct {
 	sessionCount       int
 	totalWorkTime      int
 	totalBreakTime     int
+	streakState        StreakState
 	notificationOutbox []notificationJob
 	deliveredNotifyIDs map[string]time.Time
 	outboxFile         string
@@ -182,6 +183,15 @@ type SessionTemplate struct {
 	Duration string   `json:"duration"`
 	Note     string   `json:"note,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
+}
+
+type StreakState struct {
+	Current           int
+	Best              int
+	LastWorkDay       string
+	RecoveryAvailable bool
+	RecoveryNeeded    bool
+	RecoveryPrompt    string
 }
 
 func loadSessionTemplates(path string) ([]SessionTemplate, error) {
@@ -2040,7 +2050,7 @@ func renderStatsView(m model) string {
 	barChart := renderWeeklyBarChart(weeklyData)
 
 	daily := formatDuration(getDailyTotal(m.entries, "work"))
-	current, longest := calculateStreaks(m.entries)
+	streak := computeStreakState(m.entries)
 	emptyMessage := ""
 	if len(m.entries) == 0 {
 		emptyMessage = "No sessions yet. Start a focus session to see stats."
@@ -2074,7 +2084,12 @@ func renderStatsView(m model) string {
 ┌─────────────────┐
 │  🔥  Streaks    │
 │  Current: %-3d  │
-│  Longest: %-3d  │
+│  Best: %-7d│
+└─────────────────┘
+
+┌─────────────────┐
+│  Recovery       │
+│  %-13s  │
 └─────────────────┘
 
 ┌─────────────────┐
@@ -2092,7 +2107,7 @@ Weekly Activity (7 days):
 %s
 
 %s
-`, daily, current, longest, workRatio, 100-workRatio, emptyMessage, tagSummary, barChart, footer)
+`, daily, streak.Current, streak.Best, recoveryLabel(streak), workRatio, 100-workRatio, emptyMessage, tagSummary, barChart, footer)
 }
 
 func renderSettingsView(m model) string {
@@ -2387,12 +2402,15 @@ func getDailyTotal(entries []Entry, sessionType string) int {
 	return total
 }
 
-func calculateStreaks(entries []Entry) (int, int) {
+func computeStreakState(entries []Entry) StreakState {
 	days := make(map[string]bool)
 	for _, e := range entries {
 		if e.Type == "work" {
 			days[dateKey(e.Start)] = true
 		}
+	}
+	if len(days) == 0 {
+		return StreakState{}
 	}
 
 	var list []string
@@ -2401,7 +2419,7 @@ func calculateStreaks(entries []Entry) (int, int) {
 	}
 	sort.Strings(list)
 
-	longest, temp := 0, 0
+	best, temp := 0, 0
 	var last time.Time
 	for _, d := range list {
 		date, err := time.ParseInLocation("2006-01-02", d, time.Local)
@@ -2414,31 +2432,74 @@ func calculateStreaks(entries []Entry) (int, int) {
 		} else if last.AddDate(0, 0, 1).Equal(date) {
 			temp++
 		} else {
-			if temp > longest {
-				longest = temp
+			if temp > best {
+				best = temp
 			}
 			temp = 1
 		}
 		last = date
 	}
-	if temp > longest {
-		longest = temp
+	if temp > best {
+		best = temp
 	}
 
-	today := time.Now()
-	if !days[dateKey(today)] {
-		return 0, longest
-	}
+	today := dateKey(time.Now())
+	lastWorkDay := list[len(list)-1]
 	current := 0
-	for i := 0; i < 365; i++ {
-		if days[dateKey(today.AddDate(0, 0, -i))] {
-			current++
-		} else if i > 0 {
-			break
+	recovery := false
+	recoveryNeeded := false
+	if days[today] {
+		for i := 0; i < 365; i++ {
+			if days[dateKey(time.Now().AddDate(0, 0, -i))] {
+				current++
+			} else if i > 0 {
+				break
+			}
 		}
+	} else {
+		recoveryNeeded = true
+		yesterday := dateKey(time.Now().AddDate(0, 0, -1))
+		recovery = days[yesterday]
 	}
 
-	return current, longest
+	return StreakState{
+		Current:           current,
+		Best:              best,
+		LastWorkDay:       lastWorkDay,
+		RecoveryAvailable: recovery,
+		RecoveryNeeded:    recoveryNeeded,
+		RecoveryPrompt:    recoveryPrompt(days),
+	}
+}
+
+func calculateStreaks(entries []Entry) (int, int) {
+	streak := computeStreakState(entries)
+	return streak.Current, streak.Best
+}
+
+func recoveryPrompt(days map[string]bool) string {
+	today := dateKey(time.Now())
+	if days[today] {
+		return "Streak active today"
+	}
+	yesterday := dateKey(time.Now().AddDate(0, 0, -1))
+	if days[yesterday] {
+		return "Recovery mode: one session restores your streak"
+	}
+	return "Recovery mode: start today to rebuild momentum"
+}
+
+func recoveryLabel(streak StreakState) string {
+	if streak.Current > 0 {
+		return "Active today"
+	}
+	if streak.RecoveryAvailable {
+		return "Recoverable"
+	}
+	if streak.RecoveryNeeded {
+		return "Broken, recover"
+	}
+	return "No streak yet"
 }
 
 func dateKey(value time.Time) string {
@@ -2540,6 +2601,10 @@ func main() {
 	if fatalConfig {
 		mode = "fatal"
 	}
+	streakState := computeStreakState(entryList)
+	if streakState.RecoveryNeeded {
+		startupErrors = append(startupErrors, streakState.RecoveryPrompt)
+	}
 	initialFocus := focusTask
 	if len(templates) > 0 {
 		initialFocus = focusTemplate
@@ -2560,6 +2625,7 @@ func main() {
 		templateFile:       "templates.json",
 		configFile:         "kairu.yaml",
 		config:             cfg,
+		streakState:        streakState,
 		appError:           strings.Join(startupErrors, " | "),
 		outboxFile:         defaultOutboxFile(),
 		deliveredNotifyIDs: make(map[string]time.Time),
