@@ -9,11 +9,13 @@ go run main.go
 Input mode:
 - Type a task name
 - Enter duration in minutes (e.g., 25) or hh:mm (e.g., 1:00)
+- If templates exist, use Left/Right on the `Template:` selector to cycle presets
 - Optional note field for quick session notes
 - Optional tags field for comma-separated labels like `deep work, writing`
 - Press Enter to advance through fields and start from the note field
 - Tab switches fields
 - Use Up/Down in the task field to cycle through recent tasks
+- Press Ctrl+T to save the current form as a reusable template
 - Press ? to open the help overlay
 
 Timer mode:
@@ -44,6 +46,7 @@ Errors:
 Data:
 - Sessions are appended to entries.json in the project directory
 - Each entry includes task, optional note, optional tags, start, end, duration (seconds), and type (work/break)
+- Session templates are stored in templates.json in the project directory
 
 CLI data utilities:
 - Export entries to a file:

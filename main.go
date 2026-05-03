@@ -129,6 +129,7 @@ type model struct {
 	durationInput      textinput.Model
 	noteInput          textinput.Model
 	tagInput           textinput.Model
+	templateIndex      int
 	focusedField       int
 	inputError         string
 	appError           string
@@ -138,7 +139,9 @@ type model struct {
 	recentTaskIndex    int
 	settingsCursor     int
 	entries            []Entry
+	templates          []SessionTemplate
 	dataFile           string
+	templateFile       string
 	configFile         string
 	config             Config
 	sessionStart       time.Time
@@ -169,6 +172,37 @@ type Entry struct {
 	End      time.Time `json:"end"`
 	Duration int       `json:"duration_seconds"`
 	Type     string    `json:"type"`
+}
+
+type SessionTemplate struct {
+	Name     string   `json:"name"`
+	Task     string   `json:"task"`
+	Duration string   `json:"duration"`
+	Note     string   `json:"note,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
+}
+
+func loadSessionTemplates(path string) ([]SessionTemplate, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []SessionTemplate{}, nil
+		}
+		return nil, err
+	}
+	var templates []SessionTemplate
+	if err := json.Unmarshal(data, &templates); err != nil {
+		return nil, err
+	}
+	return templates, nil
+}
+
+func saveSessionTemplates(path string, templates []SessionTemplate) error {
+	data, err := json.MarshalIndent(templates, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }
 
 func loadEntries(path string) ([]Entry, error) {
@@ -294,7 +328,8 @@ type outboxFlushedMsg struct {
 }
 
 const (
-	focusTask = iota
+	focusTemplate = iota
+	focusTask
 	focusDuration
 	focusNote
 	focusTags
@@ -598,6 +633,8 @@ func (m model) setInputFocus(field int) model {
 	m.noteInput.Blur()
 	m.tagInput.Blur()
 	switch field {
+	case focusTemplate:
+		// Template selector is rendered manually; no input widget to focus.
 	case focusTask:
 		m.textInput.Focus()
 	case focusDuration:
@@ -645,14 +682,16 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "tab":
 		if m.mode == "input" {
-			if m.focusedField == focusTask {
+			if m.focusedField == focusTemplate {
+				m = m.setInputFocus(focusTask)
+			} else if m.focusedField == focusTask {
 				m = m.setInputFocus(focusDuration)
 			} else if m.focusedField == focusDuration {
 				m = m.setInputFocus(focusNote)
 			} else if m.focusedField == focusNote {
 				m = m.setInputFocus(focusTags)
 			} else {
-				m = m.setInputFocus(focusTask)
+				m = m.setInputFocus(focusTemplate)
 			}
 			return m, nil
 		}
@@ -682,6 +721,28 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case "left", "h":
+		if m.mode == "input" && m.focusedField == focusTemplate && len(m.templates) > 0 {
+			m.templateIndex = (m.templateIndex - 1 + len(m.templates)) % len(m.templates)
+			m = m.applySelectedTemplate()
+			return m, nil
+		}
+
+	case "right", "l":
+		if m.mode == "input" && m.focusedField == focusTemplate && len(m.templates) > 0 {
+			m.templateIndex = (m.templateIndex + 1) % len(m.templates)
+			m = m.applySelectedTemplate()
+			return m, nil
+		}
+
+	case "ctrl+t":
+		if m.mode == "input" {
+			if err := m.saveCurrentTemplate(); err != nil {
+				m.setAppError(err, "Failed to save template")
+			}
+			return m, nil
+		}
+
 	case "s":
 		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" {
 			m.settingsReturnMode = m.mode
@@ -692,6 +753,11 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		if m.mode == "input" {
+			if m.focusedField == focusTemplate {
+				m = m.applySelectedTemplate()
+				m = m.setInputFocus(focusTask)
+				return m, nil
+			}
 			if m.focusedField == focusTask {
 				m = m.setInputFocus(focusDuration)
 				return m, nil
@@ -750,6 +816,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sessionElapsed = 0
 			m.inputError = ""
 			return m, tea.Batch(tickCmd(), m.notifyCmd("session_start"))
+		}
+
+		if m.mode == "input" && key == "ctrl+t" {
+			// handled above
 		}
 
 		if m.mode == "edit" {
@@ -1504,6 +1574,68 @@ func (m model) applyRecentTask(delta int) model {
 	return m
 }
 
+func (m model) currentTemplate() (SessionTemplate, bool) {
+	if len(m.templates) == 0 || m.templateIndex < 0 || m.templateIndex >= len(m.templates) {
+		return SessionTemplate{}, false
+	}
+	return m.templates[m.templateIndex], true
+}
+
+func (m model) applySelectedTemplate() model {
+	template, ok := m.currentTemplate()
+	if !ok {
+		return m
+	}
+	if strings.TrimSpace(template.Task) != "" {
+		m.textInput.SetValue(template.Task)
+		m.textInput.CursorEnd()
+	}
+	if strings.TrimSpace(template.Duration) != "" {
+		m.durationInput.SetValue(template.Duration)
+		m.durationInput.CursorEnd()
+	}
+	m.noteInput.SetValue(strings.TrimSpace(template.Note))
+	m.tagInput.SetValue(strings.Join(template.Tags, ", "))
+	m.inputError = ""
+	m.appError = ""
+	return m
+}
+
+func (m *model) saveCurrentTemplate() error {
+	task := strings.TrimSpace(m.textInput.Value())
+	if task == "" {
+		return fmt.Errorf("task name is required before saving a template")
+	}
+	template := SessionTemplate{
+		Name:     task,
+		Task:     task,
+		Duration: strings.TrimSpace(m.durationInput.Value()),
+		Note:     strings.TrimSpace(m.noteInput.Value()),
+		Tags:     parseTags(m.tagInput.Value()),
+	}
+	if strings.TrimSpace(template.Duration) == "" {
+		return fmt.Errorf("duration is required before saving a template")
+	}
+	replaced := false
+	for i, existing := range m.templates {
+		if strings.EqualFold(strings.TrimSpace(existing.Name), task) {
+			m.templates[i] = template
+			m.templateIndex = i
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		m.templates = append([]SessionTemplate{template}, m.templates...)
+		m.templateIndex = 0
+	}
+	if err := saveSessionTemplates(m.templateFile, m.templates); err != nil {
+		return err
+	}
+	m.notificationStatus = fmt.Sprintf("Saved template: %s", task)
+	return nil
+}
+
 func sendTelegramMessage(token, chatID, text string) error {
 	endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	form := url.Values{}
@@ -1587,6 +1719,12 @@ func renderInputView(m model) string {
 	if m.inputError != "" {
 		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.inputError)
 	}
+	templateLine := "Template: none"
+	if len(m.templates) > 0 {
+		if template, ok := m.currentTemplate(); ok {
+			templateLine = fmt.Sprintf("Template: %s (%d/%d)", template.Name, m.templateIndex+1, len(m.templates))
+		}
+	}
 	errorBlock := joinNonEmptyLines(errorLine, renderAppError(m))
 	return fmt.Sprintf(`
 ╭─────────────────────────────────────╮
@@ -1603,10 +1741,13 @@ func renderInputView(m model) string {
 
 %s
 
-[Tab] Switch Field   [Enter] Start   [?] Help   [q] Quit
-Recent tasks: Up/Down to cycle from history
+%s
 
-`, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), m.tagInput.View(), errorBlock)
+[Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [?] Help   [q] Quit
+Recent tasks: Up/Down to cycle from history
+Templates: Left/Right while Template is focused
+
+`, templateLine, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), m.tagInput.View(), errorBlock)
 }
 
 func renderEditView(m model) string {
@@ -2128,9 +2269,12 @@ func main() {
 		startupErrors = append(startupErrors, fmt.Sprintf("Failed to load config: %v", err))
 		fatalConfig = true
 	}
+	templates, err := loadSessionTemplates("templates.json")
+	if err != nil {
+		startupErrors = append(startupErrors, fmt.Sprintf("Failed to load templates: %v", err))
+	}
 	ti := textinput.New()
 	ti.Placeholder = "Task name"
-	ti.Focus()
 	ti.CharLimit = 50
 	ti.Width = 40
 	ti.Prompt = "Task: "
@@ -2169,6 +2313,10 @@ func main() {
 	if fatalConfig {
 		mode = "fatal"
 	}
+	initialFocus := focusTask
+	if len(templates) > 0 {
+		initialFocus = focusTemplate
+	}
 
 	m := model{
 		mode:               mode,
@@ -2176,17 +2324,20 @@ func main() {
 		durationInput:      di,
 		noteInput:          ni,
 		tagInput:           gi,
-		focusedField:       focusTask,
+		focusedField:       initialFocus,
 		entries:            entryList,
+		templates:          templates,
 		recentTasks:        buildRecentTasks(entryList),
 		recentTaskIndex:    -1,
 		dataFile:           dataFile,
+		templateFile:       "templates.json",
 		configFile:         "kairu.yaml",
 		config:             cfg,
 		appError:           strings.Join(startupErrors, " | "),
 		outboxFile:         defaultOutboxFile(),
 		deliveredNotifyIDs: make(map[string]time.Time),
 	}
+	m = m.setInputFocus(initialFocus)
 
 	if jobs, err := loadNotificationOutbox(m.outboxFile); err == nil {
 		m.notificationOutbox = jobs

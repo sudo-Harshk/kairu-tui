@@ -1,9 +1,13 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/bubbles/textinput"
 )
 
 func TestParseDurationInput(t *testing.T) {
@@ -331,4 +335,92 @@ func TestActiveSessionMode(t *testing.T) {
 	if got := m.activeSessionMode(); got != "break" {
 		t.Fatalf("expected break via help->settings, got %q", got)
 	}
+}
+
+func TestLoadAndSaveSessionTemplates(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "templates.json")
+
+	templates := []SessionTemplate{
+		{Name: "Deep Work", Task: "Deep Work", Duration: "25", Note: "Focus block", Tags: []string{"deep work", "writing"}},
+	}
+	if err := saveSessionTemplates(path, templates); err != nil {
+		t.Fatalf("saveSessionTemplates failed: %v", err)
+	}
+
+	got, err := loadSessionTemplates(path)
+	if err != nil {
+		t.Fatalf("loadSessionTemplates failed: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 template, got %d", len(got))
+	}
+	if got[0].Name != "Deep Work" || got[0].Duration != "25" {
+		t.Fatalf("unexpected template contents: %+v", got[0])
+	}
+}
+
+func TestApplySelectedTemplate(t *testing.T) {
+	t.Parallel()
+
+	m := model{
+		templates: []SessionTemplate{
+			{Name: "Writing", Task: "Write outline", Duration: "45", Note: "Blog draft", Tags: []string{"writing", "deep work"}},
+		},
+		templateIndex: 0,
+	}
+
+	m = m.applySelectedTemplate()
+	if got := m.textInput.Value(); got != "Write outline" {
+		t.Fatalf("task got %q, want %q", got, "Write outline")
+	}
+	if got := m.durationInput.Value(); got != "45" {
+		t.Fatalf("duration got %q, want %q", got, "45")
+	}
+	if got := m.noteInput.Value(); got != "Blog draft" {
+		t.Fatalf("note got %q, want %q", got, "Blog draft")
+	}
+	if got := m.tagInput.Value(); got != "writing, deep work" {
+		t.Fatalf("tags got %q, want %q", got, "writing, deep work")
+	}
+}
+
+func TestSaveCurrentTemplateUpserts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "templates.json")
+	m := model{
+		textInput:     textInputWithValue("Focus"),
+		durationInput: textInputWithValue("25"),
+		noteInput:     textInputWithValue("First pass"),
+		tagInput:      textInputWithValue("deep work, writing"),
+		templateFile:  path,
+		templates: []SessionTemplate{
+			{Name: "Focus", Task: "Old", Duration: "10"},
+		},
+	}
+
+	if err := m.saveCurrentTemplate(); err != nil {
+		t.Fatalf("saveCurrentTemplate failed: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read template file: %v", err)
+	}
+	if !strings.Contains(string(data), "First pass") {
+		t.Fatalf("expected saved template data to contain note, got %s", string(data))
+	}
+	if len(m.templates) != 1 || m.templates[0].Duration != "25" {
+		t.Fatalf("unexpected in-memory templates: %+v", m.templates)
+	}
+}
+
+func textInputWithValue(value string) textinput.Model {
+	ti := textinput.New()
+	ti.SetValue(value)
+	return ti
 }

@@ -31,6 +31,7 @@ Override rules:
 
 Storage:
 - entries.json stores session history in JSON array form
+- templates.json stores reusable session templates in JSON array form
 - notification_outbox.json stores pending notification retries
 - Quiet hours are disabled when start/end are unset or invalid
 - Notification settings changed in the app are saved back to kairu.yaml
