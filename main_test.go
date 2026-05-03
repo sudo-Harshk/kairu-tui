@@ -472,6 +472,30 @@ func TestDeleteSelectedTemplate(t *testing.T) {
 	}
 }
 
+func TestDuplicateSelectedTemplate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "templates.json")
+	m := model{
+		templateFile: path,
+		templates: []SessionTemplate{
+			{Name: "One", Task: "One", Duration: "15"},
+		},
+		templateIndex: 0,
+	}
+
+	if err := m.duplicateSelectedTemplate(); err != nil {
+		t.Fatalf("duplicateSelectedTemplate failed: %v", err)
+	}
+	if len(m.templates) != 2 {
+		t.Fatalf("expected 2 templates after duplicate, got %d", len(m.templates))
+	}
+	if got := m.templates[0].Name; got != "One Copy" {
+		t.Fatalf("duplicated template got %q, want %q", got, "One Copy")
+	}
+}
+
 func textInputWithValue(value string) textinput.Model {
 	ti := textinput.New()
 	ti.SetValue(value)

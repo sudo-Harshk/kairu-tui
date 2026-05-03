@@ -9,7 +9,7 @@ go run main.go
 Input mode:
 - Type a task name
 - Enter duration in minutes (e.g., 25) or hh:mm (e.g., 1:00)
-- If templates exist, use Left/Right on the `Template:` selector to cycle presets
+- Press Ctrl+P to open the template manager
 - Optional note field for quick session notes
 - Optional tags field for comma-separated labels like `deep work, writing`
 - Press Enter to advance through fields and start from the note field
@@ -18,6 +18,7 @@ Input mode:
 - Press Ctrl+T to save the current form as a reusable template
 - Press Ctrl+R to rename the selected template using the current task name
 - Press Ctrl+D to delete the selected template
+- Press Ctrl+Y to duplicate the selected template
 - Press ? to open the help overlay
 
 Timer mode:

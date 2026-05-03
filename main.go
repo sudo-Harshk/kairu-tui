@@ -123,6 +123,8 @@ type model struct {
 	editWasRunning     bool
 	helpReturnMode     string
 	helpWasRunning     bool
+	templateReturnMode string
+	templateWasRunning bool
 	settingsReturnMode string
 	statsReturnMode    string
 	textInput          textinput.Model
@@ -333,6 +335,15 @@ const (
 	focusDuration
 	focusNote
 	focusTags
+)
+
+const (
+	templateActionApply = iota
+	templateActionSave
+	templateActionRename
+	templateActionDelete
+	templateActionDuplicate
+	templateActionCount
 )
 
 const (
@@ -695,6 +706,13 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.mode == "templates" {
+			if len(m.templates) == 0 {
+				return m, nil
+			}
+			m = m.cycleTemplate(1)
+			return m, nil
+		}
 		if m.mode == "timer" || m.mode == "break" {
 			m.statsReturnMode = m.mode
 			m.mode = "stats"
@@ -714,10 +732,18 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.applyRecentTask(-1)
 			return m, nil
 		}
+		if m.mode == "templates" {
+			m = m.cycleTemplate(-1)
+			return m, nil
+		}
 
 	case "down":
 		if m.mode == "input" && m.focusedField == focusTask && len(m.recentTasks) > 0 {
 			m = m.applyRecentTask(1)
+			return m, nil
+		}
+		if m.mode == "templates" {
+			m = m.cycleTemplate(1)
 			return m, nil
 		}
 
@@ -727,6 +753,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.applySelectedTemplate()
 			return m, nil
 		}
+		if m.mode == "templates" {
+			m = m.cycleTemplate(-1)
+			return m, nil
+		}
 
 	case "right", "l":
 		if m.mode == "input" && m.focusedField == focusTemplate && len(m.templates) > 0 {
@@ -734,9 +764,19 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.applySelectedTemplate()
 			return m, nil
 		}
+		if m.mode == "templates" {
+			m = m.cycleTemplate(1)
+			return m, nil
+		}
 
 	case "ctrl+t":
 		if m.mode == "input" {
+			if err := m.saveCurrentTemplate(); err != nil {
+				m.setAppError(err, "Failed to save template")
+			}
+			return m, nil
+		}
+		if m.mode == "templates" {
 			if err := m.saveCurrentTemplate(); err != nil {
 				m.setAppError(err, "Failed to save template")
 			}
@@ -750,11 +790,31 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.mode == "templates" {
+			if err := m.renameSelectedTemplate(); err != nil {
+				m.setAppError(err, "Failed to rename template")
+			}
+			return m, nil
+		}
 
 	case "ctrl+d":
 		if m.mode == "input" && m.focusedField == focusTemplate {
 			if err := m.deleteSelectedTemplate(); err != nil {
 				m.setAppError(err, "Failed to delete template")
+			}
+			return m, nil
+		}
+		if m.mode == "templates" {
+			if err := m.deleteSelectedTemplate(); err != nil {
+				m.setAppError(err, "Failed to delete template")
+			}
+			return m, nil
+		}
+
+	case "ctrl+y":
+		if m.mode == "templates" {
+			if err := m.duplicateSelectedTemplate(); err != nil {
+				m.setAppError(err, "Failed to duplicate template")
 			}
 			return m, nil
 		}
@@ -833,6 +893,12 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputError = ""
 			return m, tea.Batch(tickCmd(), m.notifyCmd("session_start"))
 		}
+		if m.mode == "templates" {
+			m = m.applySelectedTemplate()
+			m.mode = "input"
+			m = m.setInputFocus(focusTask)
+			return m, nil
+		}
 
 		if m.mode == "input" && key == "ctrl+t" {
 			// handled above
@@ -893,6 +959,17 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.running = true
 				return m, tickCmd()
 			}
+			return m, nil
+		}
+	case "ctrl+p":
+		if m.mode == "input" {
+			m.templateReturnMode = m.mode
+			m.templateWasRunning = m.running
+			m.mode = "templates"
+			return m, nil
+		}
+		if m.mode == "templates" {
+			m.mode = "input"
 			return m, nil
 		}
 	}
@@ -1617,6 +1694,18 @@ func (m model) applySelectedTemplate() model {
 	return m
 }
 
+func (m model) cycleTemplate(delta int) model {
+	if len(m.templates) == 0 {
+		return m
+	}
+	if m.templateIndex < 0 || m.templateIndex >= len(m.templates) {
+		m.templateIndex = 0
+	} else {
+		m.templateIndex = (m.templateIndex + delta + len(m.templates)) % len(m.templates)
+	}
+	return m.applySelectedTemplate()
+}
+
 func (m *model) saveCurrentTemplate() error {
 	task := strings.TrimSpace(m.textInput.Value())
 	if task == "" {
@@ -1696,6 +1785,39 @@ func (m *model) deleteSelectedTemplate() error {
 	return nil
 }
 
+func (m *model) duplicateSelectedTemplate() error {
+	template, ok := m.currentTemplate()
+	if !ok {
+		return fmt.Errorf("no template selected")
+	}
+	copy := template
+	copy.Name = template.Name + " Copy"
+	copy.Task = template.Task + " Copy"
+	m.templates = append([]SessionTemplate{copy}, m.templates...)
+	m.templateIndex = 0
+	if err := saveSessionTemplates(m.templateFile, m.templates); err != nil {
+		return err
+	}
+	m.notificationStatus = fmt.Sprintf("Duplicated template: %s", template.Name)
+	return nil
+}
+
+func (m model) currentTemplateDetails() string {
+	template, ok := m.currentTemplate()
+	if !ok {
+		return "No templates saved yet."
+	}
+	tags := "none"
+	if len(template.Tags) > 0 {
+		tags = strings.Join(template.Tags, ", ")
+	}
+	note := template.Note
+	if strings.TrimSpace(note) == "" {
+		note = "none"
+	}
+	return fmt.Sprintf("Task: %s\nDuration: %s\nNote: %s\nTags: %s", template.Task, template.Duration, note, tags)
+}
+
 func sendTelegramMessage(token, chatID, text string) error {
 	endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	form := url.Values{}
@@ -1741,6 +1863,8 @@ func (m model) View() string {
 		return renderStatsView(m)
 	case "settings":
 		return renderSettingsView(m)
+	case "templates":
+		return renderTemplateManagerView(m)
 	case "help":
 		return renderHelpView(m)
 	case "fatal":
@@ -2022,6 +2146,49 @@ func renderSettingsView(m model) string {
 		"╰─────────────────────────────────────╯\n\n" +
 		body + "\n\n" +
 		hints + "\n\n" +
+		footer
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
+
+func renderTemplateManagerView(m model) string {
+	footer := "[Tab/Arrows] Browse   [Enter] Apply   [Ctrl+T] Save current form   [Ctrl+R] Rename   [Ctrl+D] Delete   [Ctrl+Y] Duplicate   [Ctrl+P/Esc] Back   [?] Help   [q] Quit"
+	errorLine := renderAppError(m)
+	statusLine := renderNotificationStatus(m)
+	if errorLine != "" {
+		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
+	if statusLine != "" {
+		footer = fmt.Sprintf("%s\n%s", statusLine, footer)
+	}
+
+	listLines := []string{"Templates:"}
+	if len(m.templates) == 0 {
+		listLines = append(listLines, "  No templates saved yet.")
+	} else {
+		for i, template := range m.templates {
+			prefix := "  "
+			if i == m.templateIndex {
+				prefix = "> "
+			}
+			listLines = append(listLines, fmt.Sprintf("%s%s (%s)", prefix, template.Name, template.Duration))
+		}
+	}
+
+	preview := m.currentTemplateDetails()
+	if len(m.templates) > 0 {
+		preview = "Selected Template:\n" + preview
+	}
+
+	body := lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Width(32).Render(strings.Join(listLines, "\n")),
+		"    ",
+		lipgloss.NewStyle().Width(40).Render(preview),
+	)
+	block := renderBanner(m.config) + "\n\n" +
+		"╭─────────────────────────────────────╮\n" +
+		"│  Session Templates                 │\n" +
+		"╰─────────────────────────────────────╯\n\n" +
+		body + "\n\n" +
 		footer
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
