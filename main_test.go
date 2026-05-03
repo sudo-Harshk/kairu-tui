@@ -232,6 +232,22 @@ func TestComputeStreakState(t *testing.T) {
 	}
 }
 
+func TestRenderStreakHistoryChart(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	loc := now.Location()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, loc)
+	entries := []Entry{
+		{Task: "a", Start: today, End: today.Add(30 * time.Minute), Duration: 1800, Type: "work"},
+	}
+
+	got := renderStreakHistoryChart(entries)
+	if !strings.Contains(got, "work logged") {
+		t.Fatalf("expected chart to show work logged, got %q", got)
+	}
+}
+
 func TestDateKeyUsesLocal(t *testing.T) {
 	t.Parallel()
 

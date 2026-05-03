@@ -2003,6 +2003,13 @@ func renderTimerView(m model) string {
 	if tags := strings.Join(m.currentSessionTags(), ", "); tags != "" {
 		header += fmt.Sprintf(" [%s]", tags)
 	}
+	if m.streakState.Current > 0 {
+		header += fmt.Sprintf("  🔥%d", m.streakState.Current)
+	} else if m.streakState.RecoveryAvailable {
+		header += "  ✦ recoverable"
+	} else if m.streakState.RecoveryNeeded {
+		header += "  ◌ rebuild"
+	}
 	ascii := renderASCIITimer(timeStr, m.config)
 	innerWidth := lipgloss.Width(progress)
 	if asciiWidth := lipgloss.Width(ascii); asciiWidth > innerWidth {
@@ -2048,6 +2055,7 @@ func renderASCIITimer(timeStr string, cfg Config) string {
 func renderStatsView(m model) string {
 	weeklyData := getWeeklyData(m.entries)
 	barChart := renderWeeklyBarChart(weeklyData)
+	streakChart := renderStreakHistoryChart(m.entries)
 
 	daily := formatDuration(getDailyTotal(m.entries, "work"))
 	streak := computeStreakState(m.entries)
@@ -2102,12 +2110,16 @@ Weekly Activity (7 days):
 
 %s
 
+Streak History (14 days):
+
+%s
+
 %s
 
 %s
 
 %s
-`, daily, streak.Current, streak.Best, recoveryLabel(streak), workRatio, 100-workRatio, emptyMessage, tagSummary, barChart, footer)
+`, daily, streak.Current, streak.Best, recoveryLabel(streak), workRatio, 100-workRatio, emptyMessage, tagSummary, barChart, streakChart, footer)
 }
 
 func renderSettingsView(m model) string {
@@ -2389,6 +2401,38 @@ func renderWeeklyBarChart(weeklyData map[string]int) string {
 	}
 
 	return b.String()
+}
+
+func renderStreakHistoryChart(entries []Entry) string {
+	streakDays := make(map[string]bool)
+	for _, e := range entries {
+		if e.Type == "work" {
+			streakDays[dateKey(e.Start)] = true
+		}
+	}
+	if len(streakDays) == 0 {
+		return "No streak history yet."
+	}
+
+	var b strings.Builder
+	for i := 13; i >= 0; i-- {
+		day := time.Now().AddDate(0, 0, -i)
+		key := dateKey(day)
+		marker := "·"
+		if streakDays[key] {
+			marker = "█"
+		}
+		b.WriteString(fmt.Sprintf("%s %s %s\n", day.Format("Jan 02"), marker, statusForStreakDay(streakDays, day)))
+	}
+	return b.String()
+}
+
+func statusForStreakDay(days map[string]bool, day time.Time) string {
+	key := dateKey(day)
+	if days[key] {
+		return "work logged"
+	}
+	return "no work"
 }
 
 func getDailyTotal(entries []Entry, sessionType string) int {
