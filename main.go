@@ -491,6 +491,16 @@ func (m model) activeSessionMode() string {
 	}
 }
 
+func (m model) returnModeForModal() string {
+	if mode := m.activeSessionMode(); mode != "" {
+		return mode
+	}
+	if m.mode == "stats" {
+		return m.statsReturnMode
+	}
+	return m.mode
+}
+
 func (m *model) saveOnQuit() {
 	sessionMode := m.activeSessionMode()
 	if (sessionMode != "timer" && sessionMode != "break") || m.seconds <= 0 {
@@ -607,6 +617,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == "settings" {
 			switch key {
 			case "tab":
+				if m.settingsCursor == settingsCount-1 && m.settingsReturnMode != "" {
+					m.statsReturnMode = m.settingsReturnMode
+					m.mode = "stats"
+					return m, nil
+				}
 				m.settingsCursor = (m.settingsCursor + 1) % settingsCount
 				return m, nil
 			case "shift+tab":
@@ -625,10 +640,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.adjustSetting(1)
 				return m, nil
 			case "esc":
-				target := m.settingsReturnMode
-				if target == "" {
-					target = m.activeSessionMode()
-				}
+				target := m.returnModeForModal()
 				if target == "" {
 					target = "timer"
 				}
@@ -831,7 +843,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "s":
 		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" {
-			m.settingsReturnMode = m.mode
+			m.settingsReturnMode = m.returnModeForModal()
 			m.settingsCursor = settingsNotifications
 			m.mode = "settings"
 			return m, nil

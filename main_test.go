@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestParseDurationInput(t *testing.T) {
@@ -379,6 +380,85 @@ func TestActiveSessionMode(t *testing.T) {
 	}
 	if got := m.activeSessionMode(); got != "break" {
 		t.Fatalf("expected break via help->settings, got %q", got)
+	}
+}
+
+func TestReturnModeForModal(t *testing.T) {
+	t.Parallel()
+
+	m := model{mode: "help", helpReturnMode: "settings", settingsReturnMode: "break"}
+	if got := m.returnModeForModal(); got != "break" {
+		t.Fatalf("expected break return mode, got %q", got)
+	}
+}
+
+func TestSettingsEscRestoresBreakMode(t *testing.T) {
+	t.Parallel()
+
+	m := model{
+		mode:               "settings",
+		settingsReturnMode: "break",
+	}
+
+	got, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated := got.(model)
+	if updated.mode != "break" {
+		t.Fatalf("expected settings esc to restore break mode, got %q", updated.mode)
+	}
+}
+
+func TestSettingsTabCanOpenStats(t *testing.T) {
+	t.Parallel()
+
+	m := model{
+		mode:               "settings",
+		settingsCursor:     settingsCount - 1,
+		settingsReturnMode: "timer",
+	}
+
+	got, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated := got.(model)
+	if updated.mode != "stats" {
+		t.Fatalf("expected tab from last settings item to open stats, got %q", updated.mode)
+	}
+	if updated.statsReturnMode != "timer" {
+		t.Fatalf("expected stats return mode timer, got %q", updated.statsReturnMode)
+	}
+}
+
+func TestSaveOnQuitFromHelpSavesActiveBreakSession(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dataFile := filepath.Join(dir, "entries.json")
+	start := time.Now().Add(-10 * time.Minute)
+
+	m := model{
+		mode:           "help",
+		helpReturnMode: "break",
+		seconds:        120,
+		taskName:       "Focus task",
+		sessionStart:    start,
+		sessionElapsed:  600,
+		dataFile:        dataFile,
+		noteInput:       textinput.New(),
+		tagInput:        textinput.New(),
+	}
+
+	m.saveOnQuit()
+
+	entries, err := loadEntries(dataFile)
+	if err != nil {
+		t.Fatalf("loadEntries failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 saved entry, got %d", len(entries))
+	}
+	if entries[0].Type != "break" {
+		t.Fatalf("expected break entry, got %q", entries[0].Type)
+	}
+	if entries[0].Task != "Focus task" {
+		t.Fatalf("unexpected task saved: %q", entries[0].Task)
 	}
 }
 
