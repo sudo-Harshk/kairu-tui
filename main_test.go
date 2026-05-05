@@ -462,6 +462,29 @@ func TestSaveOnQuitFromHelpSavesActiveBreakSession(t *testing.T) {
 	}
 }
 
+func TestTickContinuesWhileSettingsOpen(t *testing.T) {
+	t.Parallel()
+
+	m := model{
+		mode:              "settings",
+		settingsReturnMode: "timer",
+		running:           true,
+		seconds:           10,
+		sessionTarget:     10,
+		sessionElapsed:    0,
+		taskName:          "Focus task",
+	}
+
+	got, cmd := m.Update(tickTockMsg(time.Now()))
+	updated := got.(model)
+	if updated.seconds != 9 {
+		t.Fatalf("expected seconds to continue ticking in settings, got %d", updated.seconds)
+	}
+	if cmd != nil {
+		t.Fatalf("expected no extra tick command while a modal is open")
+	}
+}
+
 func TestLoadAndSaveSessionTemplates(t *testing.T) {
 	t.Parallel()
 

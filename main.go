@@ -455,7 +455,7 @@ func (m model) Init() tea.Cmd {
 		return nil
 	}
 	cmds := []tea.Cmd{textinput.Blink, m.flushOutboxCmd()}
-	if (m.mode == "timer" || m.mode == "break") && m.running {
+	if (m.activeSessionMode() == "timer" || m.activeSessionMode() == "break") && m.running {
 		cmds = append(cmds, tickCmd())
 	}
 	return tea.Batch(cmds...)
@@ -539,7 +539,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				model, cmd := m.completeSession()
 				return model, tea.Batch(notifyC, cmd)
 			}
-			return m, tickCmd()
+			if m.mode == "timer" || m.mode == "break" {
+				return m, tickCmd()
+			}
+			return m, nil
 		}
 		return m, nil
 
