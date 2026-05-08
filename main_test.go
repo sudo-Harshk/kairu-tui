@@ -285,6 +285,30 @@ func TestRenderHistoryView(t *testing.T) {
 	}
 }
 
+func TestBuildDailyReport(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	loc := now.Location()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 8, 0, 0, 0, loc)
+	entries := []Entry{
+		{Task: "Deep work", Start: today, End: today.Add(45 * time.Minute), Duration: 2700, Type: "work", Tags: []string{"writing"}},
+		{Task: "Reset", Start: today.Add(1 * time.Hour), End: today.Add(75 * time.Minute), Duration: 900, Type: "break"},
+	}
+
+	lines := buildDailyReport(entries, today)
+	report := strings.Join(lines, "\n")
+	if !strings.Contains(report, "Kairu Daily Report") {
+		t.Fatalf("expected report title, got %q", report)
+	}
+	if !strings.Contains(report, "Work: 45m") || !strings.Contains(report, "Break: 15m") {
+		t.Fatalf("expected totals in report, got %q", report)
+	}
+	if !strings.Contains(report, "Deep work") || !strings.Contains(report, "Reset") {
+		t.Fatalf("expected entries in report, got %q", report)
+	}
+}
+
 func TestDateKeyUsesLocal(t *testing.T) {
 	t.Parallel()
 

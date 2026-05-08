@@ -474,6 +474,8 @@ func (m model) activeSessionMode() string {
 		return m.settingsReturnMode
 	case "stats":
 		return m.statsReturnMode
+	case "report":
+		return m.statsReturnMode
 	case "help":
 		switch m.helpReturnMode {
 		case "settings":
@@ -496,6 +498,9 @@ func (m model) returnModeForModal() string {
 		return mode
 	}
 	if m.mode == "stats" {
+		return m.statsReturnMode
+	}
+	if m.mode == "report" {
 		return m.statsReturnMode
 	}
 	return m.mode
@@ -748,6 +753,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.mode == "history" {
+			m.mode = "report"
+			return m, nil
+		}
+		if m.mode == "report" {
 			if m.statsReturnMode != "" {
 				m.mode = m.statsReturnMode
 			} else {
@@ -849,10 +858,37 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "s":
-		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" || m.mode == "history" {
+		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" || m.mode == "history" || m.mode == "report" {
 			m.settingsReturnMode = m.returnModeForModal()
 			m.settingsCursor = settingsNotifications
 			m.mode = "settings"
+			return m, nil
+		}
+
+	case "r":
+		if m.mode == "stats" || m.mode == "history" {
+			m.mode = "report"
+			return m, nil
+		}
+
+	case "e":
+		if m.mode == "report" {
+			if path, err := m.exportDailyReport(); err != nil {
+				m.setAppError(err, "Failed to export daily report")
+			} else {
+				m.setNotificationStatus(fmt.Sprintf("Daily report exported to %s", path))
+			}
+			return m, nil
+		}
+		if m.mode == "timer" || m.mode == "break" {
+			m.editReturnMode = m.mode
+			m.editWasRunning = m.running
+			m.running = false
+			m.mode = "edit"
+			m.durationInput.SetValue(formatDurationInput(m.sessionTarget))
+			m.durationInput.Focus()
+			m.textInput.Blur()
+			m.inputError = ""
 			return m, nil
 		}
 
@@ -967,18 +1003,6 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(tickCmd(), notifyC)
 			}
 			return m, notifyC
-		}
-	case "e":
-		if m.mode == "timer" || m.mode == "break" {
-			m.editReturnMode = m.mode
-			m.editWasRunning = m.running
-			m.running = false
-			m.mode = "edit"
-			m.durationInput.SetValue(formatDurationInput(m.sessionTarget))
-			m.durationInput.Focus()
-			m.textInput.Blur()
-			m.inputError = ""
-			return m, nil
 		}
 	case "esc":
 		if m.mode == "edit" {
@@ -1892,6 +1916,8 @@ func (m model) View() string {
 		return renderStatsView(m)
 	case "history":
 		return renderHistoryView(m)
+	case "report":
+		return renderDailyReportView(m)
 	case "settings":
 		return renderSettingsView(m)
 	case "templates":
@@ -2219,6 +2245,97 @@ func renderHistoryView(m model) string {
 		strings.Join(lines, "\n") + "\n\n" +
 		footer
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
+
+func buildDailyReport(entries []Entry, day time.Time) []string {
+	dayKey := dateKey(day)
+	workSeconds := 0
+	breakSeconds := 0
+	var dayEntries []Entry
+	for _, entry := range entries {
+		if dateKey(entry.Start) != dayKey {
+			continue
+		}
+		dayEntries = append(dayEntries, entry)
+		if entry.Type == "break" {
+			breakSeconds += entry.Duration
+		} else {
+			workSeconds += entry.Duration
+		}
+	}
+
+	sort.Slice(dayEntries, func(i, j int) bool {
+		if dayEntries[i].Start.Equal(dayEntries[j].Start) {
+			return dayEntries[i].End.After(dayEntries[j].End)
+		}
+		return dayEntries[i].Start.Before(dayEntries[j].Start)
+	})
+
+	lines := []string{
+		fmt.Sprintf("# Kairu Daily Report - %s", day.Format("2006-01-02")),
+		"",
+		fmt.Sprintf("- Work: %s", formatDuration(workSeconds)),
+		fmt.Sprintf("- Break: %s", formatDuration(breakSeconds)),
+		fmt.Sprintf("- Sessions: %d", len(dayEntries)),
+	}
+	if len(dayEntries) == 0 {
+		lines = append(lines, "- No sessions recorded today.")
+		return lines
+	}
+
+	lines = append(lines, "", "## Sessions")
+	for _, entry := range dayEntries {
+		task := strings.TrimSpace(entry.Task)
+		if task == "" {
+			task = "(untitled)"
+		}
+		kind := strings.ToUpper(strings.TrimSpace(entry.Type))
+		if kind == "" {
+			kind = "WORK"
+		}
+		meta := []string{
+			entry.Start.Local().Format("15:04"),
+			kind,
+			formatDuration(entry.Duration),
+		}
+		if note := strings.TrimSpace(entry.Note); note != "" {
+			meta = append(meta, "note: "+note)
+		}
+		if len(entry.Tags) > 0 {
+			meta = append(meta, "tags: "+strings.Join(entry.Tags, ", "))
+		}
+		lines = append(lines, fmt.Sprintf("- %s | %s", task, strings.Join(meta, " | ")))
+	}
+	return lines
+}
+
+func renderDailyReportView(m model) string {
+	lines := buildDailyReport(m.entries, time.Now())
+	footer := "[Tab] Back   [E] Export markdown   [S] Settings   [?] Help   [q] Quit"
+	if strings.TrimSpace(m.notificationStatus) != "" {
+		footer = fmt.Sprintf("%s\n%s", renderNotificationStatus(m), footer)
+	}
+	if errorLine := renderAppError(m); errorLine != "" {
+		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
+
+	block := renderBanner(m.config) + "\n\n" +
+		"╭─────────────────────────────────────╮\n" +
+		"│  Daily Report                       │\n" +
+		"╰─────────────────────────────────────╯\n\n" +
+		strings.Join(lines, "\n") + "\n\n" +
+		footer
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
+
+func (m *model) exportDailyReport() (string, error) {
+	path := fmt.Sprintf("kairu-report-%s.md", dateKey(time.Now()))
+	lines := buildDailyReport(m.entries, time.Now())
+	data := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func renderSettingsView(m model) string {
