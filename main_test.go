@@ -249,6 +249,42 @@ func TestRenderStreakHistoryChart(t *testing.T) {
 	}
 }
 
+func TestRenderHistoryView(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	loc := now.Location()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 8, 0, 0, 0, loc)
+	yesterday := today.AddDate(0, 0, -1)
+	m := model{
+		entries: []Entry{
+			{Task: "Review PR", Start: today.Add(2 * time.Hour), End: today.Add(2*time.Hour + 10*time.Minute), Duration: 600, Type: "break"},
+			{Task: "Write docs", Start: today, End: today.Add(25 * time.Minute), Duration: 1500, Type: "work", Note: "draft", Tags: []string{"docs"}},
+			{Task: "Plan sprint", Start: yesterday, End: yesterday.Add(40 * time.Minute), Duration: 2400, Type: "work"},
+		},
+	}
+
+	got := renderHistoryView(m)
+	if !strings.Contains(got, "Recent Sessions by Day:") {
+		t.Fatalf("expected timeline header, got %q", got)
+	}
+	first := strings.Index(got, "Review PR")
+	second := strings.Index(got, "Write docs")
+	third := strings.Index(got, "Plan sprint")
+	if first == -1 || second == -1 || third == -1 {
+		t.Fatalf("expected all entries in view, got %q", got)
+	}
+	if first > second {
+		t.Fatalf("expected newest entry first, got %q", got)
+	}
+	if !strings.Contains(got, today.Format("Mon, Jan 02, 2006")) || !strings.Contains(got, yesterday.Format("Mon, Jan 02, 2006")) {
+		t.Fatalf("expected day headers, got %q", got)
+	}
+	if !strings.Contains(got, "note: draft") || !strings.Contains(got, "tags: docs") {
+		t.Fatalf("expected note and tag details, got %q", got)
+	}
+}
+
 func TestDateKeyUsesLocal(t *testing.T) {
 	t.Parallel()
 

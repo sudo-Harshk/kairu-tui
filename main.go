@@ -744,6 +744,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.mode == "stats" {
+			m.mode = "history"
+			return m, nil
+		}
+		if m.mode == "history" {
 			if m.statsReturnMode != "" {
 				m.mode = m.statsReturnMode
 			} else {
@@ -845,7 +849,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "s":
-		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" {
+		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" || m.mode == "history" {
 			m.settingsReturnMode = m.returnModeForModal()
 			m.settingsCursor = settingsNotifications
 			m.mode = "settings"
@@ -1886,6 +1890,8 @@ func (m model) View() string {
 		return renderEditView(m)
 	case "stats":
 		return renderStatsView(m)
+	case "history":
+		return renderHistoryView(m)
 	case "settings":
 		return renderSettingsView(m)
 	case "templates":
@@ -2085,7 +2091,7 @@ func renderStatsView(m model) string {
 	if total > 0 {
 		workRatio = m.totalWorkTime * 100 / total
 	}
-	footer := "[Tab] Back   [S] Settings   [?] Help   [q] Quit"
+	footer := "[Tab] Timeline   [S] Settings   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
 	if errorLine != "" {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
@@ -2135,6 +2141,84 @@ Streak History (14 days):
 
 %s
 `, daily, streak.Current, streak.Best, recoveryLabel(streak), workRatio, 100-workRatio, emptyMessage, tagSummary, barChart, streakChart, footer)
+}
+
+func renderHistoryView(m model) string {
+	entries := make([]Entry, len(m.entries))
+	copy(entries, m.entries)
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Start.Equal(entries[j].Start) {
+			return entries[i].End.After(entries[j].End)
+		}
+		return entries[i].Start.After(entries[j].Start)
+	})
+
+	lines := []string{"Recent Sessions by Day:"}
+	if len(entries) == 0 {
+		lines = append(lines, "  No sessions recorded yet.")
+	} else {
+		limit := 15
+		if len(entries) < limit {
+			limit = len(entries)
+		}
+		grouped := make(map[string][]Entry)
+		order := make([]string, 0, len(entries))
+		for i := 0; i < limit; i++ {
+			entry := entries[i]
+			key := dateKey(entry.Start)
+			if _, ok := grouped[key]; !ok {
+				order = append(order, key)
+			}
+			grouped[key] = append(grouped[key], entry)
+		}
+
+		for _, key := range order {
+			groupEntries := grouped[key]
+			dayLabel := groupEntries[0].Start.Local().Format("Mon, Jan 02, 2006")
+			dayTotal := 0
+			for _, entry := range groupEntries {
+				dayTotal += entry.Duration
+			}
+			lines = append(lines, fmt.Sprintf("  %s  (%d sessions, %s)", dayLabel, len(groupEntries), formatDuration(dayTotal)))
+			for _, entry := range groupEntries {
+				kind := strings.ToUpper(strings.TrimSpace(entry.Type))
+				if kind == "" {
+					kind = "WORK"
+				}
+				task := strings.TrimSpace(entry.Task)
+				if task == "" {
+					task = "(untitled)"
+				}
+				when := entry.Start.Local().Format("15:04")
+				meta := []string{when, kind, formatDuration(entry.Duration)}
+				if note := strings.TrimSpace(entry.Note); note != "" {
+					meta = append(meta, "note: "+note)
+				}
+				if len(entry.Tags) > 0 {
+					meta = append(meta, "tags: "+strings.Join(entry.Tags, ", "))
+				}
+				lines = append(lines, fmt.Sprintf("    - %-18s %s", task, strings.Join(meta, " | ")))
+			}
+			lines = append(lines, "")
+		}
+		if len(entries) > limit {
+			lines = append(lines, fmt.Sprintf("  ... and %d more sessions", len(entries)-limit))
+		}
+	}
+
+	footer := "[Tab] Dashboard   [S] Settings   [?] Help   [q] Quit"
+	errorLine := renderAppError(m)
+	if errorLine != "" {
+		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
+
+	block := renderBanner(m.config) + "\n\n" +
+		"╭─────────────────────────────────────╮\n" +
+		"│  🕘  Session Timeline              │\n" +
+		"╰─────────────────────────────────────╯\n\n" +
+		strings.Join(lines, "\n") + "\n\n" +
+		footer
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderSettingsView(m model) string {
