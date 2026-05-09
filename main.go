@@ -474,6 +474,8 @@ func (m model) activeSessionMode() string {
 		return m.settingsReturnMode
 	case "stats":
 		return m.statsReturnMode
+	case "analytics":
+		return m.statsReturnMode
 	case "report":
 		return m.statsReturnMode
 	case "help":
@@ -498,6 +500,9 @@ func (m model) returnModeForModal() string {
 		return mode
 	}
 	if m.mode == "stats" {
+		return m.statsReturnMode
+	}
+	if m.mode == "analytics" {
 		return m.statsReturnMode
 	}
 	if m.mode == "report" {
@@ -749,6 +754,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.mode == "stats" {
+			m.mode = "analytics"
+			return m, nil
+		}
+		if m.mode == "analytics" {
 			m.mode = "history"
 			return m, nil
 		}
@@ -866,7 +875,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "r":
-		if m.mode == "stats" || m.mode == "history" {
+		if m.mode == "stats" || m.mode == "analytics" || m.mode == "history" {
 			m.mode = "report"
 			return m, nil
 		}
@@ -1914,6 +1923,8 @@ func (m model) View() string {
 		return renderEditView(m)
 	case "stats":
 		return renderStatsView(m)
+	case "analytics":
+		return renderAnalyticsView(m)
 	case "history":
 		return renderHistoryView(m)
 	case "report":
@@ -2167,6 +2178,131 @@ Streak History (14 days):
 
 %s
 `, daily, streak.Current, streak.Best, recoveryLabel(streak), workRatio, 100-workRatio, emptyMessage, tagSummary, barChart, streakChart, footer)
+}
+
+func renderAnalyticsView(m model) string {
+	taskLines, tagLines, summary := buildAnalyticsSummary(m.entries)
+	footer := "[Tab] Timeline   [S] Settings   [?] Help   [q] Quit"
+	errorLine := renderAppError(m)
+	if errorLine != "" {
+		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
+
+	if len(taskLines) == 0 {
+		taskLines = []string{"  No task breakdown yet."}
+	}
+	if len(tagLines) == 0 {
+		tagLines = []string{"  No tag breakdown yet."}
+	}
+
+	return fmt.Sprintf(`
+╭─────────────────────────────────────╮
+│  📈  Analytics Snapshot            │
+╰─────────────────────────────────────╯
+
+Sessions analyzed: %d
+Work time: %s
+Break time: %s
+Average session: %s
+Longest session: %s
+Busiest day: %s
+
+Top tasks:
+%s
+
+Top tags:
+%s
+
+%s
+`, summary.totalSessions, formatDuration(summary.workSeconds), formatDuration(summary.breakSeconds), formatDuration(summary.averageSeconds), formatDuration(summary.longestSeconds), summary.busiestDay, strings.Join(taskLines, "\n"), strings.Join(tagLines, "\n"), footer)
+}
+
+type analyticsSummary struct {
+	totalSessions  int
+	workSeconds    int
+	breakSeconds   int
+	averageSeconds int
+	longestSeconds int
+	busiestDay     string
+}
+
+func buildAnalyticsSummary(entries []Entry) ([]string, []string, analyticsSummary) {
+	taskTotals := make(map[string]int)
+	tagTotals := make(map[string]int)
+	dayTotals := make(map[string]int)
+	summary := analyticsSummary{busiestDay: "n/a"}
+	for _, entry := range entries {
+		summary.totalSessions++
+		if entry.Type == "break" {
+			summary.breakSeconds += entry.Duration
+		} else {
+			summary.workSeconds += entry.Duration
+		}
+		if entry.Duration > summary.longestSeconds {
+			summary.longestSeconds = entry.Duration
+		}
+		task := strings.TrimSpace(entry.Task)
+		if task == "" {
+			task = "(untitled)"
+		}
+		taskTotals[task] += entry.Duration
+		for _, tag := range entry.Tags {
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				tagTotals[tag] += entry.Duration
+			}
+		}
+		dayTotals[dateKey(entry.Start)] += entry.Duration
+	}
+
+	if summary.totalSessions > 0 {
+		summary.averageSeconds = (summary.workSeconds + summary.breakSeconds) / summary.totalSessions
+	}
+	if len(dayTotals) > 0 {
+		var maxDay string
+		var maxTotal int
+		for day, total := range dayTotals {
+			if total > maxTotal || maxDay == "" {
+				maxDay = day
+				maxTotal = total
+			}
+		}
+		if parsed, err := time.ParseInLocation("2006-01-02", maxDay, time.Local); err == nil {
+			summary.busiestDay = fmt.Sprintf("%s (%s)", parsed.Format("Mon, Jan 02"), formatDuration(maxTotal))
+		}
+	}
+
+	taskLines := renderTopDurationLines(taskTotals, 5)
+	tagLines := renderTopDurationLines(tagTotals, 5)
+	return taskLines, tagLines, summary
+}
+
+func renderTopDurationLines(totals map[string]int, limit int) []string {
+	if len(totals) == 0 {
+		return nil
+	}
+	type item struct {
+		name    string
+		seconds int
+	}
+	items := make([]item, 0, len(totals))
+	for name, seconds := range totals {
+		items = append(items, item{name: name, seconds: seconds})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].seconds == items[j].seconds {
+			return items[i].name < items[j].name
+		}
+		return items[i].seconds > items[j].seconds
+	})
+	if len(items) < limit {
+		limit = len(items)
+	}
+	lines := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		lines = append(lines, fmt.Sprintf("  - %-18s %s", items[i].name, formatDuration(items[i].seconds)))
+	}
+	return lines
 }
 
 func renderHistoryView(m model) string {

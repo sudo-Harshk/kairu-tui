@@ -30,6 +30,7 @@ It is designed for people who want:
 - Reusable session templates
 - Notes, tags, and recent task recall
 - Activity dashboard with streaks and charts
+- Analytics snapshot with task, tag, and session breakdowns
 - Session timeline grouped by day
 - Daily markdown report export
 - Desktop, sound, and Telegram notifications
@@ -54,12 +55,13 @@ It is designed for people who want:
 
 ### Analytics and Review
 
-- Today’s work total
+- Today's work total
 - Current and best streaks
 - Recovery status
 - Work/break ratio
 - Weekly activity chart
 - Streak history chart
+- Session analytics snapshot with top tasks, tags, and busiest day
 - Top tags summary
 - Session timeline grouped by day
 - Daily report view with export
@@ -96,7 +98,8 @@ It is designed for people who want:
 | Timer / Break | `E` | Edit total duration |
 | Timer / Break | `Enter` | End session early |
 | Timer / Break | `Tab` | Open activity dashboard |
-| Dashboard | `Tab` | Open session timeline |
+| Dashboard | `Tab` | Open analytics snapshot |
+| Analytics | `Tab` | Open session timeline |
 | Timeline | `Tab` | Open daily report |
 | Report | `E` | Export markdown report |
 | Any main screen | `S` | Open settings |
@@ -149,6 +152,7 @@ While a session is active:
 From the dashboard, press `Tab` to move through:
 
 - Activity dashboard
+- Analytics snapshot
 - Session timeline
 - Daily report
 

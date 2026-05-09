@@ -285,6 +285,26 @@ func TestRenderHistoryView(t *testing.T) {
 	}
 }
 
+func TestRenderAnalyticsView(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	loc := now.Location()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 8, 0, 0, 0, loc)
+	entries := []Entry{
+		{Task: "Deep work", Start: today, End: today.Add(45 * time.Minute), Duration: 2700, Type: "work", Tags: []string{"writing", "focus"}},
+		{Task: "Reset", Start: today.Add(1 * time.Hour), End: today.Add(75 * time.Minute), Duration: 900, Type: "break"},
+		{Task: "Deep work", Start: today.Add(2 * time.Hour), End: today.Add(2*time.Hour + 30*time.Minute), Duration: 1800, Type: "work", Tags: []string{"writing"}},
+	}
+
+	got := renderAnalyticsView(model{entries: entries})
+	for _, want := range []string{"Analytics Snapshot", "Sessions analyzed: 3", "Top tasks:", "Top tags:", "Deep work", "writing"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected analytics view to contain %q, got %q", want, got)
+		}
+	}
+}
+
 func TestBuildDailyReport(t *testing.T) {
 	t.Parallel()
 
@@ -498,11 +518,11 @@ func TestSaveOnQuitFromHelpSavesActiveBreakSession(t *testing.T) {
 		helpReturnMode: "break",
 		seconds:        120,
 		taskName:       "Focus task",
-		sessionStart:    start,
-		sessionElapsed:  600,
-		dataFile:        dataFile,
-		noteInput:       textinput.New(),
-		tagInput:        textinput.New(),
+		sessionStart:   start,
+		sessionElapsed: 600,
+		dataFile:       dataFile,
+		noteInput:      textinput.New(),
+		tagInput:       textinput.New(),
 	}
 
 	m.saveOnQuit()
@@ -526,13 +546,13 @@ func TestTickContinuesWhileSettingsOpen(t *testing.T) {
 	t.Parallel()
 
 	m := model{
-		mode:              "settings",
+		mode:               "settings",
 		settingsReturnMode: "timer",
-		running:           true,
-		seconds:           10,
-		sessionTarget:     10,
-		sessionElapsed:    0,
-		taskName:          "Focus task",
+		running:            true,
+		seconds:            10,
+		sessionTarget:      10,
+		sessionElapsed:     0,
+		taskName:           "Focus task",
 	}
 
 	got, cmd := m.Update(tickTockMsg(time.Now()))
