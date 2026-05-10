@@ -700,6 +700,42 @@ func TestDeleteSelectedTemplate(t *testing.T) {
 	}
 }
 
+func TestUndoLastTemplateDelete(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "templates.json")
+	m := model{
+		templateFile: path,
+		templates: []SessionTemplate{
+			{Name: "One", Task: "One", Duration: "25"},
+			{Name: "Two", Task: "Two", Duration: "30"},
+			{Name: "Three", Task: "Three", Duration: "15"},
+		},
+		templateIndex: 1,
+	}
+
+	if err := m.deleteSelectedTemplate(); err != nil {
+		t.Fatalf("deleteSelectedTemplate failed: %v", err)
+	}
+	if err := m.undoLastTemplateDelete(); err != nil {
+		t.Fatalf("undoLastTemplateDelete failed: %v", err)
+	}
+
+	if len(m.templates) != 3 {
+		t.Fatalf("expected 3 templates after undo, got %d", len(m.templates))
+	}
+	if got := m.templates[1].Name; got != "Two" {
+		t.Fatalf("restored template got %q, want %q", got, "Two")
+	}
+	if m.templateIndex != 1 {
+		t.Fatalf("expected restored template index 1, got %d", m.templateIndex)
+	}
+	if m.lastDeletedTemplate != nil {
+		t.Fatalf("expected undo buffer to be cleared")
+	}
+}
+
 func TestDuplicateSelectedTemplate(t *testing.T) {
 	t.Parallel()
 

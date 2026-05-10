@@ -136,6 +136,7 @@ type model struct {
 	inputError         string
 	appError           string
 	notificationStatus string
+	lastDeletedTemplate *deletedTemplateState
 	taskName           string
 	recentTasks        []string
 	recentTaskIndex    int
@@ -154,6 +155,12 @@ type model struct {
 	notificationOutbox []notificationJob
 	deliveredNotifyIDs map[string]time.Time
 	outboxFile         string
+}
+
+type deletedTemplateState struct {
+	template  SessionTemplate
+	index     int
+	expiresAt time.Time
 }
 
 type notificationJob struct {
@@ -854,6 +861,14 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.mode == "templates" {
 			if err := m.deleteSelectedTemplate(); err != nil {
 				m.setAppError(err, "Failed to delete template")
+			}
+			return m, nil
+		}
+
+	case "ctrl+z":
+		if m.mode == "templates" {
+			if err := m.undoLastTemplateDelete(); err != nil {
+				m.setAppError(err, "Failed to undo template delete")
 			}
 			return m, nil
 		}
@@ -1830,6 +1845,11 @@ func (m *model) deleteSelectedTemplate() error {
 		return fmt.Errorf("no template selected")
 	}
 	removed := m.templates[m.templateIndex]
+	m.lastDeletedTemplate = &deletedTemplateState{
+		template:  removed,
+		index:     m.templateIndex,
+		expiresAt: time.Now().Add(10 * time.Second),
+	}
 	m.templates = append(m.templates[:m.templateIndex], m.templates[m.templateIndex+1:]...)
 	if len(m.templates) == 0 {
 		m.templateIndex = 0
@@ -1843,7 +1863,36 @@ func (m *model) deleteSelectedTemplate() error {
 		updated := m.applySelectedTemplate()
 		*m = updated
 	}
-	m.notificationStatus = fmt.Sprintf("Deleted template: %s", removed.Name)
+	m.notificationStatus = fmt.Sprintf("Deleted template: %s (Ctrl+Z to undo)", removed.Name)
+	return nil
+}
+
+func (m *model) undoLastTemplateDelete() error {
+	if m.lastDeletedTemplate == nil {
+		return fmt.Errorf("no deleted template to undo")
+	}
+	if time.Now().After(m.lastDeletedTemplate.expiresAt) {
+		m.lastDeletedTemplate = nil
+		return fmt.Errorf("deleted template can no longer be restored")
+	}
+	restore := *m.lastDeletedTemplate
+	if restore.index < 0 {
+		restore.index = 0
+	}
+	if restore.index > len(m.templates) {
+		restore.index = len(m.templates)
+	}
+	m.templates = append(m.templates, SessionTemplate{})
+	copy(m.templates[restore.index+1:], m.templates[restore.index:])
+	m.templates[restore.index] = restore.template
+	m.templateIndex = restore.index
+	if err := saveSessionTemplates(m.templateFile, m.templates); err != nil {
+		return err
+	}
+	m.lastDeletedTemplate = nil
+	updated := m.applySelectedTemplate()
+	*m = updated
+	m.notificationStatus = fmt.Sprintf("Restored template: %s", restore.template.Name)
 	return nil
 }
 
@@ -2530,7 +2579,7 @@ func renderSettingsView(m model) string {
 }
 
 func renderTemplateManagerView(m model) string {
-	footer := "[Tab/Arrows] Browse   [Enter] Apply   [Ctrl+T] Save current form   [Ctrl+R] Rename   [Ctrl+D] Delete   [Ctrl+Y] Duplicate   [Ctrl+P/Esc] Back   [?] Help   [q] Quit"
+	footer := "[Tab/Arrows] Browse   [Enter] Apply   [Ctrl+T] Save current form   [Ctrl+R] Rename   [Ctrl+D] Delete   [Ctrl+Z] Undo delete   [Ctrl+Y] Duplicate   [Ctrl+P/Esc] Back   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
 	statusLine := renderNotificationStatus(m)
 	if errorLine != "" {
