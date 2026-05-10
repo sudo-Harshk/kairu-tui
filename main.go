@@ -113,48 +113,48 @@ func applyEnvOverrides(cfg *Config) {
 }
 
 type model struct {
-	seconds            int
-	sessionTarget      int
-	sessionElapsed     int
-	width              int
-	running            bool
-	mode               string
-	editReturnMode     string
-	editWasRunning     bool
-	helpReturnMode     string
-	helpWasRunning     bool
-	templateReturnMode string
-	templateWasRunning bool
-	settingsReturnMode string
-	statsReturnMode    string
-	textInput          textinput.Model
-	durationInput      textinput.Model
-	noteInput          textinput.Model
-	tagInput           textinput.Model
-	templateIndex      int
-	focusedField       int
-	inputError         string
-	appError           string
-	notificationStatus string
+	seconds             int
+	sessionTarget       int
+	sessionElapsed      int
+	width               int
+	running             bool
+	mode                string
+	editReturnMode      string
+	editWasRunning      bool
+	helpReturnMode      string
+	helpWasRunning      bool
+	templateReturnMode  string
+	templateWasRunning  bool
+	settingsReturnMode  string
+	statsReturnMode     string
+	textInput           textinput.Model
+	durationInput       textinput.Model
+	noteInput           textinput.Model
+	tagInput            textinput.Model
+	templateIndex       int
+	focusedField        int
+	inputError          string
+	appError            string
+	notificationStatus  string
 	lastDeletedTemplate *deletedTemplateState
-	taskName           string
-	recentTasks        []string
-	recentTaskIndex    int
-	settingsCursor     int
-	entries            []Entry
-	templates          []SessionTemplate
-	dataFile           string
-	templateFile       string
-	configFile         string
-	config             Config
-	sessionStart       time.Time
-	sessionCount       int
-	totalWorkTime      int
-	totalBreakTime     int
-	streakState        StreakState
-	notificationOutbox []notificationJob
-	deliveredNotifyIDs map[string]time.Time
-	outboxFile         string
+	taskName            string
+	recentTasks         []string
+	recentTaskIndex     int
+	settingsCursor      int
+	entries             []Entry
+	templates           []SessionTemplate
+	dataFile            string
+	templateFile        string
+	configFile          string
+	config              Config
+	sessionStart        time.Time
+	sessionCount        int
+	totalWorkTime       int
+	totalBreakTime      int
+	streakState         StreakState
+	notificationOutbox  []notificationJob
+	deliveredNotifyIDs  map[string]time.Time
+	outboxFile          string
 }
 
 type deletedTemplateState struct {
@@ -190,6 +190,15 @@ type SessionTemplate struct {
 	Duration string   `json:"duration"`
 	Note     string   `json:"note,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
+}
+
+type ProjectBackup struct {
+	Version            int               `json:"version"`
+	CreatedAt          time.Time         `json:"created_at"`
+	Entries            []Entry           `json:"entries"`
+	Templates          []SessionTemplate `json:"templates"`
+	ConfigYAML         string            `json:"config_yaml"`
+	NotificationOutbox []notificationJob `json:"notification_outbox,omitempty"`
 }
 
 type StreakState struct {
@@ -331,6 +340,94 @@ func importEntries(dataFile, importPath string) error {
 	return nil
 }
 
+func loadFileString(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(data), nil
+}
+
+func backupProject(dataFile, templateFile, configFile, outboxFile, backupPath string) error {
+	entries, err := loadEntries(dataFile)
+	if err != nil {
+		return fmt.Errorf("failed to read entries: %w", err)
+	}
+	templates, err := loadSessionTemplates(templateFile)
+	if err != nil {
+		return fmt.Errorf("failed to read templates: %w", err)
+	}
+	configYAML, err := loadFileString(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+	outbox, err := loadNotificationOutbox(outboxFile)
+	if err != nil {
+		return fmt.Errorf("failed to read notification queue: %w", err)
+	}
+	backup := ProjectBackup{
+		Version:            1,
+		CreatedAt:          time.Now().UTC(),
+		Entries:            entries,
+		Templates:          templates,
+		ConfigYAML:         configYAML,
+		NotificationOutbox: outbox,
+	}
+	data, err := json.MarshalIndent(backup, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode backup: %w", err)
+	}
+	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write backup file: %w", err)
+	}
+	return nil
+}
+
+func restoreProject(dataFile, templateFile, configFile, outboxFile, backupPath string) error {
+	data, err := os.ReadFile(backupPath)
+	if err != nil {
+		return fmt.Errorf("failed to read backup file: %w", err)
+	}
+	var backup ProjectBackup
+	if err := json.Unmarshal(data, &backup); err != nil {
+		return fmt.Errorf("failed to parse backup file: %w", err)
+	}
+	if backup.Version != 1 {
+		return fmt.Errorf("unsupported backup version: %d", backup.Version)
+	}
+	if err := validateEntries(backup.Entries); err != nil {
+		return fmt.Errorf("backup entries validation failed: %w", err)
+	}
+	entriesData, err := json.MarshalIndent(backup.Entries, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode entries: %w", err)
+	}
+	if err := os.WriteFile(dataFile, entriesData, 0644); err != nil {
+		return fmt.Errorf("failed to restore entries: %w", err)
+	}
+	templatesData, err := json.MarshalIndent(backup.Templates, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode templates: %w", err)
+	}
+	if err := os.WriteFile(templateFile, templatesData, 0644); err != nil {
+		return fmt.Errorf("failed to restore templates: %w", err)
+	}
+	if err := os.WriteFile(configFile, []byte(backup.ConfigYAML), 0644); err != nil {
+		return fmt.Errorf("failed to restore config: %w", err)
+	}
+	outboxData, err := json.MarshalIndent(backup.NotificationOutbox, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode notification queue: %w", err)
+	}
+	if err := os.WriteFile(outboxFile, outboxData, 0644); err != nil {
+		return fmt.Errorf("failed to restore notification queue: %w", err)
+	}
+	return nil
+}
+
 type tickTockMsg time.Time
 
 type notifResultMsg struct {
@@ -376,6 +473,8 @@ const (
 	settingsFont
 	settingsQuietStart
 	settingsQuietEnd
+	settingsBackup
+	settingsRestore
 	settingsCount
 )
 
@@ -651,6 +750,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "enter", " ", "space":
+				if m.settingsCursor == settingsBackup {
+					if err := backupProject(m.dataFile, m.templateFile, m.configFile, m.outboxFile, defaultBackupFile()); err != nil {
+						m.setAppError(err, "Failed to create backup")
+					} else {
+						m.setNotificationStatus("Backup saved to backup.json")
+					}
+					return m, nil
+				}
+				if m.settingsCursor == settingsRestore {
+					if err := restoreProject(m.dataFile, m.templateFile, m.configFile, m.outboxFile, defaultBackupFile()); err != nil {
+						m.setAppError(err, "Failed to restore backup")
+					} else {
+						if err := reloadProjectState(&m); err != nil {
+							m.setAppError(err, "Backup restored but reload failed")
+						} else {
+							m.setNotificationStatus("Backup restored from backup.json")
+						}
+					}
+					return m, nil
+				}
 				m.toggleSetting()
 				return m, nil
 			case "left", "h":
@@ -1295,6 +1414,37 @@ func (m *model) setNotificationStatus(status string) {
 }
 
 func defaultOutboxFile() string { return "notification_outbox.json" }
+func defaultBackupFile() string { return "backup.json" }
+
+func reloadProjectState(m *model) error {
+	cfg, err := loadConfig(m.configFile)
+	if err != nil {
+		return err
+	}
+	templates, err := loadSessionTemplates(m.templateFile)
+	if err != nil {
+		return err
+	}
+	entries, err := loadEntries(m.dataFile)
+	if err != nil {
+		return err
+	}
+	outbox, err := loadNotificationOutbox(m.outboxFile)
+	if err != nil {
+		return err
+	}
+	m.config = cfg
+	m.templates = templates
+	m.entries = entries
+	m.recentTasks = buildRecentTasks(entries)
+	m.recentTaskIndex = -1
+	m.streakState = computeStreakState(entries)
+	m.notificationOutbox = outbox
+	if len(m.templates) > 0 && (m.templateIndex < 0 || m.templateIndex >= len(m.templates)) {
+		m.templateIndex = 0
+	}
+	return nil
+}
 
 func loadNotificationOutbox(path string) ([]notificationJob, error) {
 	var jobs []notificationJob
@@ -2524,7 +2674,7 @@ func (m *model) exportDailyReport() (string, error) {
 }
 
 func renderSettingsView(m model) string {
-	footer := "[Tab] Switch   [Space] Toggle   [Left/Right] Adjust   [Esc] Back   [q] Quit"
+	footer := "[Tab] Switch   [Space] Toggle   [Left/Right] Adjust   [Enter] Run action   [Esc] Back   [q] Quit"
 	errorLine := renderAppError(m)
 	statusLine := renderNotificationStatus(m)
 	if errorLine != "" {
@@ -2554,6 +2704,10 @@ func renderSettingsView(m model) string {
 		renderSettingsSection(m.config, "Quiet Hours", []string{
 			renderSettingLine(m.settingsCursor == settingsQuietStart, "Quiet start", hourLabel(m.config.QuietHoursStart)),
 			renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd)),
+		}),
+		renderSettingsSection(m.config, "Backup", []string{
+			renderSettingLine(m.settingsCursor == settingsBackup, "Create backup", "Write snapshot to backup.json"),
+			renderSettingLine(m.settingsCursor == settingsRestore, "Restore backup", "Load snapshot from backup.json"),
 		}),
 	}, "\n\n")
 
@@ -2663,6 +2817,10 @@ func renderSettingsHintRow(m model) string {
 		return "Quiet hours: Left/Right adjusts the hour."
 	case settingsNotifications, settingsDesktop, settingsWorkComplete, settingsBreakComplete, settingsSessionStart, settingsSessionEnd, settingsPauseResume, settingsEndingSoon:
 		return "Toggles: Space, Enter, or Left/Right flips the setting."
+	case settingsBackup:
+		return "Backup: Enter writes a project snapshot to backup.json."
+	case settingsRestore:
+		return "Restore: Enter loads backup.json and overwrites local project files."
 	default:
 		return "Use Tab to move between sections."
 	}
@@ -2970,10 +3128,24 @@ func main() {
 	dataFile := "entries.json"
 	exportPath := flag.String("export", "", "Export entries.json to the provided file path")
 	importPath := flag.String("import", "", "Import entries from the provided file path into entries.json")
+	backupPath := flag.String("backup", "", "Backup entries, templates, config, and notification queue to the provided file path")
+	restorePath := flag.String("restore", "", "Restore entries, templates, config, and notification queue from the provided file path")
 	flag.Parse()
 
 	if *exportPath != "" && *importPath != "" {
 		fmt.Println("Error: --export and --import cannot be used together.")
+		os.Exit(1)
+	}
+	if *backupPath != "" && *restorePath != "" {
+		fmt.Println("Error: --backup and --restore cannot be used together.")
+		os.Exit(1)
+	}
+	if *backupPath != "" && (*exportPath != "" || *importPath != "") {
+		fmt.Println("Error: --backup cannot be combined with --export or --import.")
+		os.Exit(1)
+	}
+	if *restorePath != "" && (*exportPath != "" || *importPath != "") {
+		fmt.Println("Error: --restore cannot be combined with --export or --import.")
 		os.Exit(1)
 	}
 	if *exportPath != "" {
@@ -2990,6 +3162,22 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("Import complete:", *importPath)
+		return
+	}
+	if *backupPath != "" {
+		if err := backupProject(dataFile, "templates.json", "kairu.yaml", defaultOutboxFile(), *backupPath); err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Backup complete:", *backupPath)
+		return
+	}
+	if *restorePath != "" {
+		if err := restoreProject(dataFile, "templates.json", "kairu.yaml", defaultOutboxFile(), *restorePath); err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Restore complete:", *restorePath)
 		return
 	}
 	startupErrors := []string{}

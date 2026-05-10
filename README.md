@@ -81,6 +81,7 @@ It is designed for people who want:
 - Theme selection: `forest`, `ocean`, `ember`, `mono`
 - Timer fonts: `ansi`, `block`, `thin`
 - Notification toggles and quiet hours in-app
+- Backup and restore actions in Settings
 
 ## Keybindings
 
@@ -213,19 +214,36 @@ KAIRU_TELEGRAM_CHAT_ID=your_chat_id
 
 ## CLI Commands
 
-Export session data:
+Backup the full local project state:
 
 ```bash
-go run main.go --export backup.json
+go run main.go --backup backup.json
 ```
 
-Import session data and merge it with the existing file:
+Restore the full local project state from a backup:
 
 ```bash
-go run main.go --import backup.json
+go run main.go --restore backup.json
 ```
 
-`--export` and `--import` cannot be used together.
+Legacy session-only export/import is still available:
+
+```bash
+go run main.go --export entries.json
+go run main.go --import entries.json
+```
+
+`--backup`, `--restore`, `--export`, and `--import` are mutually exclusive.
+
+### In-App Backup and Restore
+
+From the Settings screen:
+
+- move to the `Backup` section with `Tab`
+- press `Enter` on `Create backup` to write `backup.json`
+- press `Enter` on `Restore backup` to reload `backup.json`
+
+The restore action overwrites the local project files and refreshes the running TUI state.
 
 ## Notifications
 
