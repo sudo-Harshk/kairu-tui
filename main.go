@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -42,6 +43,8 @@ type Config struct {
 	SoundCommand         string `yaml:"sound_command"`
 	AutoBreak            bool   `yaml:"auto_break"`
 	SessionsBeforeBreak  int    `yaml:"sessions_before_break"`
+	SoundscapesDir       string `yaml:"soundscapes_dir"`
+	SoundscapePlayer     string `yaml:"soundscape_player"`
 	TelegramBotToken     string `yaml:"-"`
 	TelegramChatID       string `yaml:"-"`
 }
@@ -64,6 +67,8 @@ var defaultConfig = Config{
 	SoundCommand:         "",
 	AutoBreak:            false,
 	SessionsBeforeBreak:  4,
+	SoundscapesDir:       "soundscapes",
+	SoundscapePlayer:     "mpv --loop --no-video",
 	TelegramBotToken:     "",
 	TelegramChatID:       "",
 }
@@ -155,6 +160,42 @@ type model struct {
 	notificationOutbox  []notificationJob
 	deliveredNotifyIDs  map[string]time.Time
 	outboxFile          string
+	soundscapeReturnMode string
+	soundscapes         []string
+	soundscapeIndex     int
+	activeSoundscapeCmd *exec.Cmd
+}
+
+func loadSoundscapes(dir string) ([]string, error) {
+	if dir == "" {
+		return []string{}, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	var soundscapes []string
+	extensions := map[string]bool{
+		".mp3":  true,
+		".wav":  true,
+		".ogg":  true,
+		".flac": true,
+		".m4a":  true,
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if extensions[ext] {
+			soundscapes = append(soundscapes, entry.Name())
+		}
+	}
+	sort.Strings(soundscapes)
+	return soundscapes, nil
 }
 
 type deletedTemplateState struct {
@@ -618,6 +659,7 @@ func (m model) returnModeForModal() string {
 }
 
 func (m *model) saveOnQuit() {
+	m.stopSoundscape()
 	sessionMode := m.activeSessionMode()
 	if (sessionMode != "timer" && sessionMode != "break") || m.seconds <= 0 {
 		return
@@ -1065,6 +1107,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.mode = "timer"
+				m.startSoundscape()
 				m.taskName = strings.TrimSpace(m.textInput.Value())
 				m.textInput.Blur()
 				m.durationInput.Blur()
@@ -1088,6 +1131,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.mode = "timer"
+			m.startSoundscape()
 			m.taskName = strings.TrimSpace(m.textInput.Value())
 			m.textInput.Blur()
 			m.durationInput.Blur()
@@ -1168,6 +1212,49 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = "input"
 			return m, nil
 		}
+	case "ctrl+m":
+		if m.mode == "soundscapes" {
+			m.mode = m.soundscapeReturnMode
+			return m, nil
+		}
+		m.soundscapeReturnMode = m.mode
+		m.mode = "soundscapes"
+		return m, nil
+	}
+
+	if m.mode == "soundscapes" {
+		switch key {
+		case "up", "k":
+			if len(m.soundscapes) > 0 {
+				m.soundscapeIndex--
+				if m.soundscapeIndex < -1 {
+					m.soundscapeIndex = len(m.soundscapes) - 1
+				}
+			}
+			return m, nil
+		case "down", "j":
+			if len(m.soundscapes) > 0 {
+				m.soundscapeIndex++
+				if m.soundscapeIndex >= len(m.soundscapes) {
+					m.soundscapeIndex = -1
+				}
+			}
+			return m, nil
+		case "enter":
+			if m.activeSessionMode() == "timer" {
+				if m.soundscapeIndex == -1 {
+					m.stopSoundscape()
+				} else {
+					m.startSoundscape()
+				}
+			}
+			m.mode = m.soundscapeReturnMode
+			return m, nil
+		case "esc":
+			m.mode = m.soundscapeReturnMode
+			return m, nil
+		}
+		return m, nil
 	}
 
 	if m.mode == "input" {
@@ -1198,7 +1285,38 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *model) startSoundscape() {
+	if m.soundscapeIndex < 0 || m.soundscapeIndex >= len(m.soundscapes) {
+		return
+	}
+	m.stopSoundscape()
+
+	track := m.soundscapes[m.soundscapeIndex]
+	path := filepath.Join(m.config.SoundscapesDir, track)
+
+	parts := strings.Fields(m.config.SoundscapePlayer)
+	if len(parts) == 0 {
+		return
+	}
+	args := append(parts[1:], path)
+	cmd := exec.Command(parts[0], args...)
+	if err := cmd.Start(); err != nil {
+		m.setAppError(err, "Failed to start soundscape")
+		return
+	}
+	m.activeSoundscapeCmd = cmd
+}
+
+func (m *model) stopSoundscape() {
+	if m.activeSoundscapeCmd != nil && m.activeSoundscapeCmd.Process != nil {
+		_ = m.activeSoundscapeCmd.Process.Kill()
+		_ = m.activeSoundscapeCmd.Wait()
+		m.activeSoundscapeCmd = nil
+	}
+}
+
 func (m model) completeSession() (tea.Model, tea.Cmd) {
+	m.stopSoundscape()
 	flushCmd := m.saveSession()
 	if m.mode == "timer" {
 		m.sessionCount++
@@ -1433,6 +1551,7 @@ func reloadProjectState(m *model) error {
 	if err != nil {
 		return err
 	}
+	soundscapes, _ := loadSoundscapes(cfg.SoundscapesDir)
 	m.config = cfg
 	m.templates = templates
 	m.entries = entries
@@ -1440,6 +1559,7 @@ func reloadProjectState(m *model) error {
 	m.recentTaskIndex = -1
 	m.streakState = computeStreakState(entries)
 	m.notificationOutbox = outbox
+	m.soundscapes = soundscapes
 	if len(m.templates) > 0 && (m.templateIndex < 0 || m.templateIndex >= len(m.templates)) {
 		m.templateIndex = 0
 	}
@@ -2132,6 +2252,8 @@ func (m model) View() string {
 		return renderSettingsView(m)
 	case "templates":
 		return renderTemplateManagerView(m)
+	case "soundscapes":
+		return renderSoundscapeMenuView(m)
 	case "help":
 		return renderHelpView(m)
 	case "fatal":
@@ -2194,7 +2316,7 @@ func renderInputView(m model) string {
 
 %s
 
-[Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [?] Help   [q] Quit
+[Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [Ctrl+M] Soundscapes   [?] Help   [q] Quit
 Recent tasks: Up/Down to cycle from history
 Templates: Left/Right while Template is focused
 
@@ -2251,9 +2373,9 @@ func renderTimerView(m model) string {
 	empty := barWidth - filled
 	progress := fmt.Sprintf("[%s%s] %.0f%%", strings.Repeat("█", filled), strings.Repeat("░", empty), remainingPct)
 
-	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [?] Help  [q] Quit"
+	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help  [q] Quit"
 	if !m.running {
-		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [?] Help  [q] Quit"
+		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help  [q] Quit"
 	}
 
 	header := fmt.Sprintf("%s • %s", modeStr, m.taskName)
@@ -2785,6 +2907,37 @@ func renderSettingsSection(cfg Config, title string, lines []string) string {
 %s`, header, strings.Join(lines, "\n"))
 }
 
+func renderSoundscapeMenuView(m model) string {
+	lines := []string{"Select a Soundscape (Work Only):"}
+	noneLabel := "  [ ] None"
+	if m.soundscapeIndex == -1 {
+		noneLabel = "  [*] None"
+	}
+	lines = append(lines, noneLabel)
+
+	for i, track := range m.soundscapes {
+		prefix := "  [ ] "
+		if i == m.soundscapeIndex {
+			prefix = "  [*] "
+		}
+		lines = append(lines, prefix+track)
+	}
+
+	if len(m.soundscapes) == 0 {
+		lines = append(lines, "", "  (No audio files found in "+m.config.SoundscapesDir+")")
+	}
+
+	footer := "[Enter] Select   [Esc/Ctrl+M] Cancel"
+	block := renderBanner(m.config) + "\n\n" +
+		"╭─────────────────────────────────────╮\n" +
+		"│  🎵  Soundscapes                   │\n" +
+		"╰─────────────────────────────────────╯\n\n" +
+		strings.Join(lines, "\n") + "\n\n" +
+		footer
+
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
+
 func renderSettingsPreview(m model) string {
 	theme := activeTheme(m.config)
 	font := activeFont(m.config)
@@ -2864,6 +3017,8 @@ func renderHelpView(m model) string {
 		"Input mode:",
 		formatHelpLine("Tab", "Switch field"),
 		formatHelpLine("Enter", "Start session"),
+		formatHelpLine("Ctrl+P", "Templates"),
+		formatHelpLine("Ctrl+M", "Soundscapes"),
 		"",
 		"Timer/Break:",
 		formatHelpLine("Space", "Pause/Resume"),
@@ -2871,6 +3026,7 @@ func renderHelpView(m model) string {
 		formatHelpLine("Enter", "End session"),
 		formatHelpLine("Tab", "Stats"),
 		formatHelpLine("S", "Settings"),
+		formatHelpLine("Ctrl+M", "Soundscapes"),
 		"",
 		"Edit:",
 		formatHelpLine("Enter", "Apply"),
@@ -3243,6 +3399,8 @@ func main() {
 		initialFocus = focusTemplate
 	}
 
+	soundscapes, _ := loadSoundscapes(cfg.SoundscapesDir)
+
 	m := model{
 		mode:               mode,
 		textInput:          ti,
@@ -3262,6 +3420,8 @@ func main() {
 		appError:           strings.Join(startupErrors, " | "),
 		outboxFile:         defaultOutboxFile(),
 		deliveredNotifyIDs: make(map[string]time.Time),
+		soundscapes:        soundscapes,
+		soundscapeIndex:    -1,
 	}
 	m = m.setInputFocus(initialFocus)
 
