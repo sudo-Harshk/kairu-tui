@@ -104,6 +104,8 @@ It is designed for people who want:
 | Analytics | `Tab` | Open activity heatmap |
 | Heatmap | `Tab` | Open session timeline |
 | Timeline | `Tab` | Open daily report |
+| Report | `Tab` | Return to dashboard |
+| Stats views | `Esc` | Return to timer |
 | Report | `E` | Export markdown report |
 | Any main screen | `S` | Open settings |
 | Any main screen | `?` | Open help overlay |

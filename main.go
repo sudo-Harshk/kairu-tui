@@ -945,6 +945,12 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.mode == "report" {
+			m.mode = "stats"
+			return m, nil
+		}
+
+	case "esc":
+		if m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" {
 			if m.statsReturnMode != "" {
 				m.mode = m.statsReturnMode
 			} else {
@@ -952,6 +958,16 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.mode == "edit" {
+			m.mode = m.editReturnMode
+			m.inputError = ""
+			if m.editWasRunning && m.seconds > 0 {
+				m.running = true
+				return m, tickCmd()
+			}
+			return m, nil
+		}
+		return m, nil
 
 	case "up":
 		if m.mode == "input" && m.focusedField == focusTask && len(m.recentTasks) > 0 {
@@ -1201,16 +1217,6 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(tickCmd(), notifyC)
 			}
 			return m, notifyC
-		}
-	case "esc":
-		if m.mode == "edit" {
-			m.mode = m.editReturnMode
-			m.inputError = ""
-			if m.editWasRunning && m.seconds > 0 {
-				m.running = true
-				return m, tickCmd()
-			}
-			return m, nil
 		}
 	case "ctrl+p":
 		if m.mode == "input" {
@@ -2444,6 +2450,38 @@ func renderASCIITimer(timeStr string, cfg Config) string {
 	return strings.Join(lines, "\n")
 }
 
+func renderStatsTabs(currentMode string, cfg Config) string {
+	tabs := []struct {
+		mode  string
+		label string
+	}{
+		{"stats", "Dashboard"},
+		{"analytics", "Analytics"},
+		{"heatmap", "Heatmap"},
+		{"history", "Timeline"},
+		{"report", "Report"},
+	}
+
+	theme := activeTheme(cfg)
+	var renderedTabs []string
+
+	for _, t := range tabs {
+		style := lipgloss.NewStyle().Padding(0, 1)
+		if t.mode == currentMode {
+			style = style.
+				Foreground(lipgloss.Color(theme.accent)).
+				Bold(true).
+				Underline(true)
+		} else {
+			style = style.Foreground(lipgloss.Color(theme.primary))
+		}
+		renderedTabs = append(renderedTabs, style.Render(t.label))
+	}
+
+	row := lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
+	return "\n" + row + "\n" + themedStyle(cfg, theme.primary).Render(strings.Repeat("─", lipgloss.Width(row))) + "\n"
+}
+
 func renderStatsView(m model) string {
 	weeklyData := getWeeklyData(m.entries)
 	barChart := renderWeeklyBarChart(weeklyData)
@@ -2462,19 +2500,19 @@ func renderStatsView(m model) string {
 	if total > 0 {
 		workRatio = m.totalWorkTime * 100 / total
 	}
-	footer := "[Tab] Timeline   [S] Settings   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
-	if errorLine != "" {
-		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
-	}
 	if emptyMessage != "" {
 		emptyMessage = fmt.Sprintf("\n%s\n", emptyMessage)
 	}
 
-	return fmt.Sprintf(`
-╭─────────────────────────────────────╮
-│  📊  Activity Dashboard            │
-╰─────────────────────────────────────╯
+	tabs := renderStatsTabs("stats", m.config)
+	footer := "[Tab] Cycle Views   [S] Settings   [?] Help   [q] Quit"
+	if errorLine != "" {
+		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
+
+	block := fmt.Sprintf(`%s
+%s
 
 ┌─────────────────┐
 │  📅  Today      │
@@ -2511,12 +2549,14 @@ Streak History (14 days):
 %s
 
 %s
-`, daily, streak.Current, streak.Best, recoveryLabel(streak), workRatio, 100-workRatio, emptyMessage, tagSummary, barChart, streakChart, footer)
+`, renderBanner(m.config), tabs, daily, streak.Current, streak.Best, recoveryLabel(streak), workRatio, 100-workRatio, emptyMessage, tagSummary, barChart, streakChart, footer)
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderAnalyticsView(m model) string {
 	taskLines, tagLines, summary := buildAnalyticsSummary(m.entries)
-	footer := "[Tab] Timeline   [S] Settings   [?] Help   [q] Quit"
+	tabs := renderStatsTabs("analytics", m.config)
+	footer := "[Tab] Cycle Views   [S] Settings   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
 	if errorLine != "" {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
@@ -2529,10 +2569,8 @@ func renderAnalyticsView(m model) string {
 		tagLines = []string{"  No tag breakdown yet."}
 	}
 
-	return fmt.Sprintf(`
-╭─────────────────────────────────────╮
-│  📈  Analytics Snapshot            │
-╰─────────────────────────────────────╯
+	block := fmt.Sprintf(`%s
+%s
 
 Sessions analyzed: %d
 Work time: %s
@@ -2548,26 +2586,27 @@ Top tags:
 %s
 
 %s
-`, summary.totalSessions, formatDuration(summary.workSeconds), formatDuration(summary.breakSeconds), formatDuration(summary.averageSeconds), formatDuration(summary.longestSeconds), summary.busiestDay, strings.Join(taskLines, "\n"), strings.Join(tagLines, "\n"), footer)
+`, renderBanner(m.config), tabs, summary.totalSessions, formatDuration(summary.workSeconds), formatDuration(summary.breakSeconds), formatDuration(summary.averageSeconds), formatDuration(summary.longestSeconds), summary.busiestDay, strings.Join(taskLines, "\n"), strings.Join(tagLines, "\n"), footer)
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderHeatmapView(m model) string {
 	heatmap := renderActivityHeatmap(m.entries, m.config, m.width)
-	footer := "[Tab] Timeline   [S] Settings   [?] Help   [q] Quit"
+	tabs := renderStatsTabs("heatmap", m.config)
+	footer := "[Tab] Cycle Views   [S] Settings   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
 	if errorLine != "" {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
 	}
 
-	return fmt.Sprintf(`
-╭─────────────────────────────────────╮
-│  🧱  Activity Heatmap              │
-╰─────────────────────────────────────╯
-
+	block := fmt.Sprintf(`%s
 %s
 
 %s
-`, heatmap, footer)
+
+%s
+`, renderBanner(m.config), tabs, heatmap, footer)
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderActivityHeatmap(entries []Entry, cfg Config, width int) string {
@@ -2819,16 +2858,15 @@ func renderHistoryView(m model) string {
 		}
 	}
 
-	footer := "[Tab] Dashboard   [S] Settings   [?] Help   [q] Quit"
+	tabs := renderStatsTabs("history", m.config)
+	footer := "[Tab] Cycle Views   [S] Settings   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
 	if errorLine != "" {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
 	}
 
-	block := renderBanner(m.config) + "\n\n" +
-		"╭─────────────────────────────────────╮\n" +
-		"│  🕘  Session Timeline              │\n" +
-		"╰─────────────────────────────────────╯\n\n" +
+	block := renderBanner(m.config) + "\n" +
+		tabs + "\n" +
 		strings.Join(lines, "\n") + "\n\n" +
 		footer
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
@@ -2898,7 +2936,8 @@ func buildDailyReport(entries []Entry, day time.Time) []string {
 
 func renderDailyReportView(m model) string {
 	lines := buildDailyReport(m.entries, time.Now())
-	footer := "[Tab] Back   [E] Export markdown   [S] Settings   [?] Help   [q] Quit"
+	tabs := renderStatsTabs("report", m.config)
+	footer := "[Tab] Cycle Views   [E] Export markdown   [S] Settings   [?] Help   [q] Quit"
 	if strings.TrimSpace(m.notificationStatus) != "" {
 		footer = fmt.Sprintf("%s\n%s", renderNotificationStatus(m), footer)
 	}
@@ -2906,10 +2945,8 @@ func renderDailyReportView(m model) string {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
 	}
 
-	block := renderBanner(m.config) + "\n\n" +
-		"╭─────────────────────────────────────╮\n" +
-		"│  Daily Report                       │\n" +
-		"╰─────────────────────────────────────╯\n\n" +
+	block := renderBanner(m.config) + "\n" +
+		tabs + "\n" +
 		strings.Join(lines, "\n") + "\n\n" +
 		footer
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
@@ -3162,8 +3199,9 @@ func renderHelpView(m model) string {
 		formatHelpLine("Enter", "Apply"),
 		formatHelpLine("Esc", "Cancel"),
 		"",
-		"Stats/Analytics/Heatmap:",
+		"Stats Views:",
 		formatHelpLine("Tab", "Cycle views"),
+		formatHelpLine("Esc", "Back to timer"),
 		formatHelpLine("R", "Daily report"),
 		formatHelpLine("S", "Settings"),
 		"",

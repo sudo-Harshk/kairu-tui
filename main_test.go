@@ -299,7 +299,7 @@ func TestRenderAnalyticsView(t *testing.T) {
 	}
 
 	got := renderAnalyticsView(model{entries: entries})
-	for _, want := range []string{"Analytics Snapshot", "Sessions analyzed: 3", "Top tasks:", "Top tags:", "Deep work", "writing"} {
+	for _, want := range []string{"Analytics", "Sessions analyzed: 3", "Top tasks:", "Top tags:", "Deep work", "writing"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected analytics view to contain %q, got %q", want, got)
 		}
