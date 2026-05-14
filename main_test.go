@@ -849,6 +849,21 @@ func TestDuplicateSelectedTemplate(t *testing.T) {
 	}
 }
 
+func TestRenderActivityHeatmap(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	entries := []Entry{
+		{Task: "Focus", Start: now, Duration: 3600, Type: "work"},
+		{Task: "Old", Start: now.AddDate(0, 0, -10), Duration: 7200, Type: "work"},
+	}
+
+	got := renderActivityHeatmap(entries, defaultConfig, 80)
+	if !strings.Contains(got, "Sun") || !strings.Contains(got, "Sat") {
+		t.Fatalf("expected day labels in heatmap, got %q", got)
+	}
+}
+
 func textInputWithValue(value string) textinput.Model {
 	ti := textinput.New()
 	ti.SetValue(value)

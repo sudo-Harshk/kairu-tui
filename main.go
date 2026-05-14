@@ -623,6 +623,8 @@ func (m model) activeSessionMode() string {
 		return m.statsReturnMode
 	case "analytics":
 		return m.statsReturnMode
+	case "heatmap":
+		return m.statsReturnMode
 	case "report":
 		return m.statsReturnMode
 	case "help":
@@ -633,6 +635,8 @@ func (m model) activeSessionMode() string {
 			}
 			return m.settingsReturnMode
 		case "stats":
+			return m.statsReturnMode
+		case "heatmap":
 			return m.statsReturnMode
 		default:
 			return m.helpReturnMode
@@ -650,6 +654,9 @@ func (m model) returnModeForModal() string {
 		return m.statsReturnMode
 	}
 	if m.mode == "analytics" {
+		return m.statsReturnMode
+	}
+	if m.mode == "heatmap" {
 		return m.statsReturnMode
 	}
 	if m.mode == "report" {
@@ -926,6 +933,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.mode == "analytics" {
+			m.mode = "heatmap"
+			return m, nil
+		}
+		if m.mode == "heatmap" {
 			m.mode = "history"
 			return m, nil
 		}
@@ -1043,7 +1054,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "s":
-		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" || m.mode == "history" || m.mode == "report" {
+		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" {
 			m.settingsReturnMode = m.returnModeForModal()
 			m.settingsCursor = settingsNotifications
 			m.mode = "settings"
@@ -1051,7 +1062,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "r":
-		if m.mode == "stats" || m.mode == "analytics" || m.mode == "history" {
+		if m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" {
 			m.mode = "report"
 			return m, nil
 		}
@@ -2244,6 +2255,8 @@ func (m model) View() string {
 		return renderStatsView(m)
 	case "analytics":
 		return renderAnalyticsView(m)
+	case "heatmap":
+		return renderHeatmapView(m)
 	case "history":
 		return renderHistoryView(m)
 	case "report":
@@ -2536,6 +2549,123 @@ Top tags:
 
 %s
 `, summary.totalSessions, formatDuration(summary.workSeconds), formatDuration(summary.breakSeconds), formatDuration(summary.averageSeconds), formatDuration(summary.longestSeconds), summary.busiestDay, strings.Join(taskLines, "\n"), strings.Join(tagLines, "\n"), footer)
+}
+
+func renderHeatmapView(m model) string {
+	heatmap := renderActivityHeatmap(m.entries, m.config, m.width)
+	footer := "[Tab] Timeline   [S] Settings   [?] Help   [q] Quit"
+	errorLine := renderAppError(m)
+	if errorLine != "" {
+		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	}
+
+	return fmt.Sprintf(`
+╭─────────────────────────────────────╮
+│  🧱  Activity Heatmap              │
+╰─────────────────────────────────────╯
+
+%s
+
+%s
+`, heatmap, footer)
+}
+
+func renderActivityHeatmap(entries []Entry, cfg Config, width int) string {
+	dayTotals := make(map[string]int)
+	for _, entry := range entries {
+		if entry.Type == "work" {
+			dayTotals[dateKey(entry.Start)] += entry.Duration
+		}
+	}
+
+	// Each column is 2 chars wide (block + space)
+	// Left labels: "Sun " (4 chars)
+	// We want to fit within the width
+	maxWeeks := (width - 8) / 2
+	if maxWeeks > 52 {
+		maxWeeks = 52
+	}
+	if maxWeeks < 4 {
+		return "Terminal too narrow for heatmap."
+	}
+
+	today := time.Now()
+	// Current week's Sunday
+	currentSunday := today.AddDate(0, 0, -int(today.Weekday()))
+	startDate := currentSunday.AddDate(0, 0, -7*(maxWeeks-1))
+
+	var b strings.Builder
+
+	// Month labels
+	b.WriteString("    ")
+	lastMonth := -1
+	for w := 0; w < maxWeeks; w++ {
+		date := startDate.AddDate(0, 0, w*7)
+		if int(date.Month()) != lastMonth {
+			label := date.Format("Jan")
+			b.WriteString(label)
+			if len(label) < 2 {
+				b.WriteString(" ")
+			}
+			lastMonth = int(date.Month())
+			// Skip columns covered by the label
+			skip := (len(label) + 1) / 2
+			for i := 1; i < skip && w+i < maxWeeks; i++ {
+				w++
+			}
+		} else {
+			b.WriteString("  ")
+		}
+	}
+	b.WriteString("\n")
+
+	days := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+	theme := activeTheme(cfg)
+
+	for d := 0; d < 7; d++ {
+		b.WriteString(fmt.Sprintf("%3s ", days[d]))
+		for w := 0; w < maxWeeks; w++ {
+			date := startDate.AddDate(0, 0, w*7+d)
+			if date.After(today) {
+				b.WriteString("  ")
+				continue
+			}
+
+			seconds := dayTotals[dateKey(date)]
+			b.WriteString(renderHeatmapBlock(seconds, cfg, theme) + " ")
+		}
+		b.WriteString("\n")
+	}
+
+	// Legend
+	b.WriteString("\n    Less ")
+	b.WriteString(renderHeatmapBlock(0, cfg, theme) + " ")
+	b.WriteString(renderHeatmapBlock(15*60, cfg, theme) + " ")
+	b.WriteString(renderHeatmapBlock(45*60, cfg, theme) + " ")
+	b.WriteString(renderHeatmapBlock(90*60, cfg, theme) + " ")
+	b.WriteString(renderHeatmapBlock(150*60, cfg, theme) + " ")
+	b.WriteString(" More\n")
+
+	return b.String()
+}
+
+func renderHeatmapBlock(seconds int, cfg Config, theme themeStyle) string {
+	minutes := seconds / 60
+	style := lipgloss.NewStyle()
+
+	if minutes <= 0 {
+		return style.Foreground(lipgloss.Color("8")).Render("·")
+	}
+
+	if minutes < 30 {
+		return style.Foreground(lipgloss.Color(theme.primary)).Faint(true).Render("█")
+	} else if minutes < 60 {
+		return style.Foreground(lipgloss.Color(theme.primary)).Render("█")
+	} else if minutes < 120 {
+		return style.Foreground(lipgloss.Color(theme.primary)).Bold(true).Render("█")
+	} else {
+		return style.Foreground(lipgloss.Color(theme.accent)).Render("█")
+	}
 }
 
 type analyticsSummary struct {
@@ -3032,8 +3162,9 @@ func renderHelpView(m model) string {
 		formatHelpLine("Enter", "Apply"),
 		formatHelpLine("Esc", "Cancel"),
 		"",
-		"Stats:",
-		formatHelpLine("Tab", "Back"),
+		"Stats/Analytics/Heatmap:",
+		formatHelpLine("Tab", "Cycle views"),
+		formatHelpLine("R", "Daily report"),
 		formatHelpLine("S", "Settings"),
 		"",
 	}

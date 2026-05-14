@@ -30,6 +30,7 @@ It is designed for people who want:
 - Reusable session templates
 - Notes, tags, and recent task recall
 - Activity dashboard with streaks and charts
+- Year-at-a-glance Activity Heatmap
 - Analytics snapshot with task, tag, and session breakdowns
 - Session timeline grouped by day
 - Daily markdown report export
@@ -100,7 +101,8 @@ It is designed for people who want:
 | Timer / Break | `Enter` | End session early |
 | Timer / Break | `Tab` | Open activity dashboard |
 | Dashboard | `Tab` | Open analytics snapshot |
-| Analytics | `Tab` | Open session timeline |
+| Analytics | `Tab` | Open activity heatmap |
+| Heatmap | `Tab` | Open session timeline |
 | Timeline | `Tab` | Open daily report |
 | Report | `E` | Export markdown report |
 | Any main screen | `S` | Open settings |
@@ -148,12 +150,13 @@ While a session is active:
 - End early with `Enter`
 - Open the dashboard with `Tab`
 
-### 3. Review your work
+### Review your work
 
 From the dashboard, press `Tab` to move through:
 
 - Activity dashboard
 - Analytics snapshot
+- Activity heatmap
 - Session timeline
 - Daily report
 
