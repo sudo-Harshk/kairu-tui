@@ -38,9 +38,54 @@ Stats dashboard:
 - Current and longest streaks
 - Weekly activity bar chart (last 7 days)
 - Work/break ratio for this run
+- Recovery status (see below)
 - Tab to return
 - S to open the settings panel
 - ? for help
+
+## Streak & Recovery
+
+A **streak** counts the number of consecutive calendar days on which you completed at least one work session.
+
+### Streak indicator
+
+The timer header always shows your current streak state:
+
+| Display | Meaning |
+| --- | --- |
+| `🔥 N` | Active streak — you have worked N days in a row including today |
+| `✦ recoverable` | You missed yesterday but worked the day before; complete a session today to save the streak |
+| `◌ rebuild` | The streak has been lost; start fresh today |
+
+### Recovery mode
+
+If you miss exactly one day, Kairu enters **Recovery mode**. The input screen will show an encouraging prompt:
+
+> ✦ Recovery mode — complete a session today to save your streak!
+
+Complete any work session before midnight and your streak is preserved.
+
+If you miss two or more consecutive days the streak resets and the prompt changes to encourage you to start a new streak.
+
+### Stats dashboard
+
+The Analytics/Stats screen (press `Tab` during a timer session) shows:
+
+- **Current streak** — consecutive days including today
+- **Best streak** — your all-time longest streak
+- **Recovery status** — whether recovery is available, active today, or the streak is lost
+
+## Soundscapes
+
+Press `Ctrl+M` from the input screen or while a timer is running to open the Soundscape selector.
+
+- Use `Up` / `Down` to navigate the list of audio files found in `soundscapes_dir`
+- Press `Enter` to activate the highlighted track (or select `None` to stop playback)
+- Press `Esc` or `Ctrl+M` again to cancel
+- Playback only runs during work sessions; it stops automatically on break, end, or quit
+- The active track is shown in the timer header as `🎵 Track Name`
+
+To add tracks, drop `.mp3`, `.wav`, `.ogg`, `.flac`, or `.aac` files into the configured `soundscapes_dir` directory (default: `soundscapes/`).
 
 Errors:
 - Input validation errors show inline under the fields.

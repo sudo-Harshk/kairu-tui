@@ -1,187 +1,285 @@
-# Kairu TUI
+<div align="center">
 
-Kairu TUI is a local-first, keyboard-driven Pomodoro timer for people who want focused work sessions, lightweight task capture, and useful activity analytics without leaving the terminal.
+# Kairu
 
-It combines a visual ASCII timer, reusable templates, notes and tags, session history, daily reporting, and notification support in a compact Go TUI.
+**A keyboard-first Pomodoro timer for the terminal.**
 
-[![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-CLI%20%2F%20TUI-111827)]()
-[![Local First](https://img.shields.io/badge/Storage-Local%20Only-16a34a)]()
+[![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-6366f1?style=flat-square)]()
+[![Storage](https://img.shields.io/badge/Storage-Local%20Only-f59e0b?style=flat-square)]()
+[![Built With](https://img.shields.io/badge/Built%20with-Bubbletea-ec4899?style=flat-square)](https://github.com/charmbracelet/bubbletea)
 
-## Why Kairu
+</div>
 
-Most timer apps focus on counting down. Kairu focuses on helping you work.
+---
 
-It is designed for people who want:
+Kairu is a compact, local-first TUI application that combines a Pomodoro timer, task capture, session templates, ambient soundscapes, and productivity analytics - all without leaving your terminal.
 
-- a distraction-free terminal workflow
-- quick capture of tasks, notes, and tags
-- reusable session templates for repeat work
-- useful history instead of a pile of raw timestamps
-- lightweight reporting without leaving the app
-- local control over data, notifications, and formatting
+> No accounts. No cloud. No distractions. Just work.
 
-## Highlights
+---
 
-- Local-first session tracking
-- Fast keyboard workflow
-- Pomodoro-style work and break cycles
-- Reusable session templates
-- Notes, tags, and recent task recall
-- Activity dashboard with streaks and charts
-- Year-at-a-glance Activity Heatmap
-- Analytics snapshot with task, tag, and session breakdowns
-- Session timeline grouped by day
-- Daily markdown report export
-- Desktop, sound, and Telegram notifications
-- Theme and timer font customization
+## Table of Contents
 
-## Screens and Features
+- [Features](#features)
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Keybindings](#keybindings)
+- [Soundscapes](#soundscapes)
+- [Template Management](#template-management)
+- [Configuration](#configuration)
+- [Notifications](#notifications)
+- [Data & Storage](#data--storage)
+- [CLI Reference](#cli-reference)
+- [Contributing](#contributing)
+- [Documentation](#documentation)
 
-### Focus Workflow
+---
 
-- Start a task with a duration, optional note, and optional tags
-- Use recent task recall to reuse past entries quickly
-- Save the current form as a template for repeated workflows
-- Browse, apply, rename, delete, or duplicate templates
+## Features
 
-### Timer and Break Modes
+| Category | Capabilities |
+|---|---|
+| **Timer** | ASCII art countdown, pause/resume, inline duration edit, auto-break cycling |
+| **Task Capture** | Task name, note, comma-separated tags, recent task recall overlay |
+| **Templates** | Save, apply, rename, delete, duplicate, and undo — full browser with `Ctrl+P` |
+| **Soundscapes** | Ambient audio during work sessions, live track indicator in timer header |
+| **Analytics** | Daily totals, streak tracking, recovery mode, work/break ratio, weekly chart |
+| **Heatmap** | Year-at-a-glance activity heatmap (GitHub-style) |
+| **Reports** | Session timeline, daily markdown report with export |
+| **Notifications** | Desktop, sound command, and Telegram — with quiet hours and an outbox |
+| **Personalization** | 4 themes (`forest`, `ocean`, `ember`, `mono`), 3 timer fonts, in-app settings |
+| **Data Safety** | One-command backup and restore; all data is local JSON/YAML |
 
-- Large ASCII art timer display
-- Pause and resume sessions
-- Edit the running session duration
-- End a session early
-- Automatic break switching after a configurable number of work sessions
+---
 
-### Analytics and Review
+## Architecture
 
-- Today's work total
-- Current and best streaks
-- Recovery status
-- Work/break ratio
-- Weekly activity chart
-- Streak history chart
-- Session analytics snapshot with top tasks, tags, and busiest day
-- Top tags summary
-- Session timeline grouped by day
-- Daily report view with export
+```
+┌─────────────────────────────────────────────────────────┐
+│                      kairu-tui                          │
+│                                                         │
+│  ┌──────────────┐    ┌───────────────────────────────┐  │
+│  │   Config     │    │          TUI (Bubbletea)       │  │
+│  │  kairu.yaml  │───▶│                               │  │
+│  └──────────────┘    │  Input ──▶ Timer ──▶ Break    │  │
+│                      │    │         │                 │  │
+│  ┌──────────────┐    │    ▼         ▼                 │  │
+│  │   Session    │◀──▶│  Templates  Stats Dashboard   │  │
+│  │ entries.json │    │             │                 │  │
+│  └──────────────┘    │             ▼                 │  │
+│                      │           Heatmap             │  │
+│  ┌──────────────┐    │           Timeline            │  │
+│  │  Templates   │◀──▶│           Report              │  │
+│  │templates.json│    └───────────────────────────────┘  │
+│  └──────────────┘                  │                    │
+│                                    ▼                    │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │             Notification Pipeline               │   │
+│  │  outbox.json ──▶ Desktop / Sound / Telegram     │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
 
-### Notifications
+**Key design decisions:**
 
-- Session start/end notifications
-- Work complete and break complete notifications
-- Pause/resume notifications
-- Ending soon reminders
-- Quiet hours support
-- Optional sound command hook
-- Optional Telegram delivery
+- **Single binary** - the entire application lives in one Go file with zero CGO dependencies.
+- **Local-first** - all state is stored in plain JSON/YAML files next to the binary. No network calls except optional Telegram delivery.
+- **Keyboard-driven** - every action is reachable from the keyboard; the mouse is never required.
+- **Bubbletea model** - state flows through a single immutable `model` struct updated by an `Update` function, making the app deterministic and easy to reason about.
 
-### Personalization
-
-- Theme selection: `forest`, `ocean`, `ember`, `mono`
-- Timer fonts: `ansi`, `block`, `thin`
-- Notification toggles and quiet hours in-app
-- Backup and restore actions in Settings
-
-## Keybindings
-
-| Screen | Keys | Action |
-| --- | --- | --- |
-| Input | `Tab` | Move between fields |
-| Input | `Enter` | Advance or start the session |
-| Input | `Ctrl+P` | Open template manager |
-| Input | `Ctrl+T` | Save current form as template |
-| Input | `Ctrl+R` | Rename selected template |
-| Input | `Ctrl+D` | Delete selected template |
-| Input | `Ctrl+Y` | Duplicate selected template |
-| Input | `Up` / `Down` | Cycle recent tasks |
-| Timer / Break | `Space` | Pause or resume |
-| Timer / Break | `E` | Edit total duration |
-| Timer / Break | `Enter` | End session early |
-| Timer / Break | `Tab` | Open activity dashboard |
-| Dashboard | `Tab` | Open analytics snapshot |
-| Analytics | `Tab` | Open activity heatmap |
-| Heatmap | `Tab` | Open session timeline |
-| Timeline | `Tab` | Open daily report |
-| Report | `Tab` | Return to dashboard |
-| Stats views | `Esc` | Return to timer |
-| Report | `E` | Export markdown report |
-| Any main screen | `S` | Open settings |
-| Any main screen | `?` | Open help overlay |
-| Any main screen | `q` | Quit |
+---
 
 ## Quick Start
 
-Requirements:
-
-- Go 1.21+
-
-Run from source:
+**Requirements:** Go 1.21+
 
 ```bash
+# Clone and run
 git clone https://github.com/sudo-Harshk/kairu-tui.git
 cd kairu-tui
 go run main.go
 ```
 
-Optional install:
-
 ```bash
+# Or install to $GOPATH/bin
 go install .
 ```
 
+The app creates `kairu.yaml`, `entries.json`, and `templates.json` on first run. No setup required.
+
+---
+
 ## Usage
 
-### 1. Create a session
+### Starting a session
 
-From the input screen:
+1. Type a task name in the **Task** field
+2. Enter a duration - `25` (minutes) or `1:30` (hh:mm)
+3. Optionally fill in a note and tags (comma-separated)
+4. Press `Enter` to start the timer
 
-- Enter a task name
-- Enter a duration in minutes, such as `25`, or in `hh:mm`, such as `1:00`
-- Optionally add a note
-- Optionally add comma-separated tags such as `deep work, writing`
-- Press `Enter` to start
+### During a session
 
-### 2. Manage the timer
+- `Space` - pause or resume
+- `E` - edit the planned duration without stopping
+- `Enter` - end the session early and save it
+- `Tab` - open the analytics dashboard
+- `Ctrl+M` - open the soundscape selector
 
-While a session is active:
+### Reviewing your work
 
-- Pause or resume with `Space`
-- Edit the planned duration with `E`
-- End early with `Enter`
-- Open the dashboard with `Tab`
+Press `Tab` while the timer is running to step through the analytics pipeline:
 
-### Review your work
+```
+Timer → Dashboard → Analytics → Heatmap → Timeline → Report → Timer
+```
 
-From the dashboard, press `Tab` to move through:
+The **Daily Report** can be exported as a Markdown file with `E`.
 
-- Activity dashboard
-- Analytics snapshot
-- Activity heatmap
-- Session timeline
-- Daily report
+### Streak & Recovery
 
-The daily report can be exported as a markdown file for external notes or journaling.
+Kairu tracks consecutive work days as a **streak**, shown in the timer header:
 
-## Data Files
+| Indicator | Meaning |
+|---|---|
+| `🔥 N` | Active streak — worked N days in a row including today |
+| `✦ recoverable` | Missed yesterday, but the streak can still be saved today |
+| `◌ rebuild` | Streak lost — start fresh today |
 
-Kairu stores everything locally in the project directory:
+When recovery is available, the input screen shows a prompt so you never silently lose progress.
 
-- `entries.json` - session history
-- `templates.json` - saved templates
-- `kairu.yaml` - configuration
-- `notification_outbox.json` - queued notification retries
+---
+
+## Keybindings
+
+### Input Screen
+
+| Key | Action |
+|---|---|
+| `Tab` | Cycle between fields |
+| `Enter` | Advance field / start session |
+| `Up` / `Down` | Browse recent tasks (shows 5-item overlay) |
+| `Left` / `Right` | Cycle templates (when Template field is focused) |
+| `Ctrl+P` | Open Template Browser |
+| `Ctrl+T` | Save current form as a template |
+| `Ctrl+M` | Open Soundscape selector |
+| `?` | Help overlay |
+| `q` | Quit |
+
+### Timer & Break
+
+| Key | Action |
+|---|---|
+| `Space` | Pause / Resume |
+| `E` | Edit session duration |
+| `Enter` | End session early |
+| `Tab` | Open analytics dashboard |
+| `S` | Open settings |
+| `Ctrl+M` | Open Soundscape selector |
+| `?` | Help overlay |
+| `q` | Quit (saves current session) |
+
+### Template Browser (`Ctrl+P`)
+
+| Key | Action |
+|---|---|
+| `Tab` / `Up` / `Down` | Navigate templates |
+| `Enter` | Apply selected template |
+| `Ctrl+T` | Save current form as new template |
+| `Ctrl+R` | Rename selected template |
+| `Ctrl+D` | Delete selected template |
+| `Ctrl+Z` | Undo last delete (10 s window) |
+| `Ctrl+Y` | Duplicate selected template |
+| `Ctrl+P` / `Esc` | Return to input screen |
+
+### Analytics Views
+
+| Key | Action |
+|---|---|
+| `Tab` | Advance to next view |
+| `Esc` | Return to timer |
+| `E` (Report only) | Export markdown report |
+| `S` | Open settings |
+
+---
+
+## Soundscapes
+
+Kairu can play looping ambient audio during work sessions.
+
+### Setup
+
+1. Create a `soundscapes/` directory in the project root (or set `soundscapes_dir` in config)
+2. Drop audio files into it - `.mp3`, `.wav`, `.ogg`, `.flac`, `.aac`
+3. Install a command-line player:
+
+```bash
+# macOS
+brew install mpv
+
+# Ubuntu / Debian
+sudo apt install mpv
+
+# Windows (winget)
+winget install mpv
+```
+
+### How it works
+
+- Press `Ctrl+M` to open the selector at any time
+- Navigate with `Up` / `Down`, confirm with `Enter`
+- Select **None** to stop playback
+- Playback is scoped to work sessions only - it pauses on break and stops on session end
+- The active track name appears in the timer header as `🎵 Track Name`
+
+You can use any player that accepts a file path as its final argument:
+
+```yaml
+soundscape_player: ffplay -loop 0 -nodisp -autoexit
+```
+
+---
+
+## Template Management
+
+Templates store a full session configuration - task, duration, note, and tags - for one-keystroke reuse.
+
+### Creating a template
+
+Fill in the input form and press `Ctrl+T`. If a template with the same task name already exists it is updated in place.
+
+### Applying a template
+
+- Press `Ctrl+P` to open the Template Browser and select from a searchable list
+- Or use `Left` / `Right` while the **Template** field is focused to cycle inline
+
+### Template Browser
+
+Each entry shows **Name**, **Duration**, and **Tags**. Use the browser to apply, rename, delete, undo, or duplicate templates without leaving the keyboard.
+
+---
 
 ## Configuration
 
-Create `kairu.yaml` in the project root. Missing values fall back to defaults.
+Create `kairu.yaml` in the project root. All keys are optional and fall back to the defaults shown below.
 
 ```yaml
+# Session durations (minutes)
 work_duration: 25
 break_duration: 5
-theme: forest
-font: ansi
+
+# Appearance
+theme: forest         # forest | ocean | ember | mono
+font: ansi            # ansi | block | thin
+
+# Auto-break cycling
+auto_break: false
+sessions_before_break: 4
+
+# Notifications
 notifications: false
 desktop_notifications: true
 notify_work_complete: true
@@ -190,119 +288,130 @@ notify_session_start: false
 notify_session_end: false
 notify_pause_resume: false
 notify_ending_soon: false
+
+# Quiet hours (-1 disables)
 quiet_hours_start: -1
 quiet_hours_end: -1
+
+# Sound hook (runs after desktop notification fails)
 sound_command: ""
-auto_break: false
-sessions_before_break: 4
+
+# Soundscapes
+soundscapes_dir: soundscapes
+soundscape_player: mpv --loop --no-video
 ```
 
-Theme options:
+### Themes
 
-- `forest`
-- `ocean`
-- `ember`
-- `mono`
+| Value | Description |
+|---|---|
+| `forest` | Green accent, natural tones |
+| `ocean` | Blue accent, cool palette |
+| `ember` | Amber accent, warm palette |
+| `mono` | No color, terminal default |
 
-Font options:
+### Telegram Notifications
 
-- `ansi`
-- `block`
-- `thin`
-
-Telegram notifications use environment variables in `.env`:
+Add credentials to a `.env` file (never committed):
 
 ```bash
 KAIRU_TELEGRAM_BOT_TOKEN=your_bot_token
 KAIRU_TELEGRAM_CHAT_ID=your_chat_id
 ```
 
-## CLI Commands
+See [docs/telegram-notifications.md](docs/telegram-notifications.md) for setup instructions.
 
-Backup the full local project state:
+---
+
+## Notifications
+
+Kairu attempts notification delivery in order: **Desktop → Sound command → Telegram**. The first successful channel wins. Failed attempts are queued in `notification_outbox.json` and retried automatically.
+
+**Events that can trigger a notification:**
+
+- Session start / end
+- Work complete
+- Break complete
+- Pause / resume
+- Ending soon (configurable threshold)
+
+Quiet hours suppress all notifications between `quiet_hours_start` and `quiet_hours_end` (24-hour integers, e.g. `22` and `7`).
+
+---
+
+## Data & Storage
+
+All data lives next to the binary. No installation to system directories.
+
+| File | Contents |
+|---|---|
+| `kairu.yaml` | Application configuration |
+| `entries.json` | Session history |
+| `templates.json` | Saved session templates |
+| `notification_outbox.json` | Pending notification retries |
+| `backup.json` | Full state snapshot (created on demand) |
+
+### Session schema
+
+```json
+{
+  "task": "Write design doc",
+  "note": "Focus on the API section",
+  "tags": ["writing", "deep work"],
+  "start": "2026-05-17T09:00:00Z",
+  "end": "2026-05-17T09:25:00Z",
+  "duration": 1500,
+  "type": "work"
+}
+```
+
+---
+
+## CLI Reference
 
 ```bash
+# Backup full state (config + sessions + templates + outbox)
 go run main.go --backup backup.json
-```
 
-Restore the full local project state from a backup:
-
-```bash
+# Restore from backup
 go run main.go --restore backup.json
-```
 
-Legacy session-only export/import is still available:
-
-```bash
+# Export session history only
 go run main.go --export entries.json
+
+# Import and merge session history
 go run main.go --import entries.json
 ```
 
 `--backup`, `--restore`, `--export`, and `--import` are mutually exclusive.
 
-### In-App Backup and Restore
+In-app backup and restore are also available from the **Settings** screen.
 
-From the Settings screen:
-
-- move to the `Backup` section with `Tab`
-- press `Enter` on `Create backup` to write `backup.json`
-- press `Enter` on `Restore backup` to reload `backup.json`
-
-The restore action overwrites the local project files and refreshes the running TUI state.
-
-## Notifications
-
-Kairu can notify on:
-
-- session start
-- session end
-- work complete
-- break complete
-- pause/resume
-- ending soon
-
-Notification delivery can use:
-
-- desktop notifications
-- a local sound command
-- Telegram
-
-Quiet hours can be configured to suppress notifications during specific hours.
-
-## Session Fields
-
-Each stored session includes:
-
-- task
-- optional note
-- optional tags
-- start time
-- end time
-- duration in seconds
-- type (`work` or `break`)
-
-## Development
-
-Run tests:
-
-```bash
-go test ./...
-```
+---
 
 ## Contributing
 
-Contributions are welcome.
+1. Open an issue before starting larger changes - alignment up front saves everyone time.
+2. Keep pull requests focused and small.
+3. Run `go test ./...` before submitting.
+4. All UI changes must remain keyboard-first and compatible with `charmbracelet/bubbletea`.
+5. No new CGO or cloud dependencies — keep the binary self-contained and lightweight.
 
-- Open an issue for bugs, ideas, or feature requests before larger changes.
-- Keep changes focused and small when possible.
-- Run `go test ./...` before submitting a pull request.
-- Match the existing code style and keep the TUI keyboard-first workflow intact.
+---
 
 ## Documentation
 
-Additional docs:
+| Document | Description |
+|---|---|
+| [docs/setup.md](docs/setup.md) | Detailed installation and environment setup |
+| [docs/usage.md](docs/usage.md) | Full usage guide including streaks and soundscapes |
+| [docs/configuration.md](docs/configuration.md) | Every configuration key explained |
+| [docs/telegram-notifications.md](docs/telegram-notifications.md) | Telegram bot setup walkthrough |
 
-- [docs/setup.md](docs/setup.md)
-- [docs/usage.md](docs/usage.md)
-- [docs/configuration.md](docs/configuration.md)
-- [docs/telegram-notifications.md](docs/telegram-notifications.md)
+---
+
+<div align="center">
+
+MIT License · Built with [Bubbletea](https://github.com/charmbracelet/bubbletea) · No telemetry, no cloud
+
+</div>

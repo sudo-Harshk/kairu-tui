@@ -145,6 +145,7 @@ type model struct {
 	taskName            string
 	recentTasks         []string
 	recentTaskIndex     int
+	showRecentOverlay   bool
 	settingsCursor      int
 	entries             []Entry
 	templates           []SessionTemplate
@@ -848,6 +849,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) setInputFocus(field int) model {
+	m.showRecentOverlay = false
 	m.focusedField = field
 	m.textInput.Blur()
 	m.durationInput.Blur()
@@ -971,6 +973,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "up":
 		if m.mode == "input" && m.focusedField == focusTask && len(m.recentTasks) > 0 {
+			m.showRecentOverlay = true
 			m = m.applyRecentTask(-1)
 			return m, nil
 		}
@@ -981,6 +984,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "down":
 		if m.mode == "input" && m.focusedField == focusTask && len(m.recentTasks) > 0 {
+			m.showRecentOverlay = true
 			m = m.applyRecentTask(1)
 			return m, nil
 		}
@@ -1278,6 +1282,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focusedField == focusTask {
 			m.textInput, cmd = m.textInput.Update(msg)
 			m.recentTaskIndex = -1
+			m.showRecentOverlay = false
 		} else if m.focusedField == focusDuration {
 			m.durationInput, cmd = m.durationInput.Update(msg)
 		} else if m.focusedField == focusNote {
@@ -1868,7 +1873,13 @@ func deliverNotification(cfg Config, title, body string) (string, error) {
 		}
 	}
 	if cfg.SoundCommand != "" {
-		if err := exec.Command("sh", "-c", cfg.SoundCommand).Run(); err == nil {
+		var soundErr error
+		if runtime.GOOS == "windows" {
+			soundErr = exec.Command("cmd", "/c", cfg.SoundCommand).Run()
+		} else {
+			soundErr = exec.Command("sh", "-c", cfg.SoundCommand).Run()
+		}
+		if soundErr == nil {
 			return "Sound fallback delivered", nil
 		}
 	}
@@ -1892,19 +1903,16 @@ func sendDesktopNotification(title, body string) error {
 		return exec.Command("sh", "-c", fmt.Sprintf("printf '\\a'; printf '%s: %s\\n'", shellEscape(title), shellEscape(body))).Run()
 	case "windows":
 		script := fmt.Sprintf(`
-$ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
 $notify = New-Object System.Windows.Forms.NotifyIcon
 $notify.Icon = [System.Drawing.SystemIcons]::Information
 $notify.BalloonTipTitle = '%s'
 $notify.BalloonTipText = '%s'
 $notify.Visible = $true
-$notify.ShowBalloonTip(4000)
-Start-Sleep -Milliseconds 4500
+$notify.ShowBalloonTip(3000)
 $notify.Dispose()
 `, psEscape(title), psEscape(body))
-		return exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script).Run()
+		return exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script).Run()
 	default:
 		return fmt.Errorf("desktop notifications are not supported on %s", runtime.GOOS)
 	}
@@ -2318,11 +2326,38 @@ func renderInputView(m model) string {
 		}
 	}
 	errorBlock := joinNonEmptyLines(errorLine, renderAppError(m))
+
+	recoveryMsg := ""
+	if m.streakState.RecoveryAvailable {
+		recoveryMsg = "✦ Recovery mode — complete a session today to save your streak!"
+	} else if m.streakState.RecoveryNeeded {
+		recoveryMsg = "◌ Streak lost — start fresh today and rebuild your momentum!"
+	}
+
+	recentOverlay := ""
+	if m.showRecentOverlay && len(m.recentTasks) > 0 {
+		limit := 5
+		if len(m.recentTasks) < limit {
+			limit = len(m.recentTasks)
+		}
+		overlayLines := []string{"Recent tasks:"}
+		for i := 0; i < limit; i++ {
+			cursor := "  "
+			if i == m.recentTaskIndex {
+				cursor = "> "
+			}
+			overlayLines = append(overlayLines, cursor+m.recentTasks[i])
+		}
+		recentOverlay = strings.Join(overlayLines, "\n")
+	}
+
 	return fmt.Sprintf(`
 ╭─────────────────────────────────────╮
 │  📝  What are you working on?      │
 ╰─────────────────────────────────────╯
 
+%s
+%s
 %s
 
 %s
@@ -2336,10 +2371,9 @@ func renderInputView(m model) string {
 %s
 
 [Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [Ctrl+M] Soundscapes   [?] Help   [q] Quit
-Recent tasks: Up/Down to cycle from history
-Templates: Left/Right while Template is focused
+Templates: Left/Right while Template is focused   Up/Down to browse recent tasks
 
-`, templateLine, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), m.tagInput.View(), errorBlock)
+`, templateLine, recoveryMsg, recentOverlay, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), m.tagInput.View(), errorBlock)
 }
 
 func renderEditView(m model) string {
@@ -2407,6 +2441,10 @@ func renderTimerView(m model) string {
 		header += "  ✦ recoverable"
 	} else if m.streakState.RecoveryNeeded {
 		header += "  ◌ rebuild"
+	}
+	if m.activeSoundscapeCmd != nil && m.soundscapeIndex >= 0 && m.soundscapeIndex < len(m.soundscapes) {
+		track := strings.TrimSuffix(m.soundscapes[m.soundscapeIndex], filepath.Ext(m.soundscapes[m.soundscapeIndex]))
+		header += fmt.Sprintf("  🎵 %s", track)
 	}
 	ascii := renderASCIITimer(timeStr, m.config)
 	innerWidth := lipgloss.Width(progress)
@@ -3041,7 +3079,11 @@ func renderTemplateManagerView(m model) string {
 			if i == m.templateIndex {
 				prefix = "> "
 			}
-			listLines = append(listLines, fmt.Sprintf("%s%s (%s)", prefix, template.Name, template.Duration))
+			tagStr := ""
+			if len(template.Tags) > 0 {
+				tagStr = fmt.Sprintf(" [%s]", strings.Join(template.Tags, ", "))
+			}
+			listLines = append(listLines, fmt.Sprintf("%s%s (%s)%s", prefix, template.Name, template.Duration, tagStr))
 		}
 	}
 
