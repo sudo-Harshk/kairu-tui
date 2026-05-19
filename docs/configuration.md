@@ -20,6 +20,8 @@ YAML (kairu.yaml):
 - sound_command (string) — optional shell command to play a sound after notification
 - auto_break (bool) — suggest a break automatically after N sessions
 - sessions_before_break (int) — default 4
+- soundscapes_dir (string) — directory to scan for audio files (default: `soundscapes/`)
+- soundscape_player (string) — command used to play audio (default: `mpv --loop --no-video`)
 
 Env (.env):
 - KAIRU_TELEGRAM_BOT_TOKEN — token from @BotFather
@@ -33,9 +35,16 @@ Storage:
 - entries.json stores session history in JSON array form
 - templates.json stores reusable session templates in JSON array form
 - notification_outbox.json stores pending notification retries
+- backup.json (generated) contains a snapshot of all project data
 - Quiet hours are disabled when start/end are unset or invalid
 - Notification settings changed in the app are saved back to kairu.yaml
 - Theme and font changes made in the app are saved back to kairu.yaml
+
+In-App Backup & Tools:
+- Press **S** to open settings, then navigate to the **Backup/Tools** section.
+- **Create backup:** Writes a snapshot of your entries, templates, and config to `backup.json`.
+- **Restore backup:** Loads data from `backup.json` (overwrites existing files).
+- **Clear queue:** Manually empties the `notification_outbox.json` retry list.
 
 Keyboard:
 - Tab switches views/fields

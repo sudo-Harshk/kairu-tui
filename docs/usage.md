@@ -9,17 +9,26 @@ go run main.go
 Input mode:
 - Type a task name
 - Enter duration in minutes (e.g., 25) or hh:mm (e.g., 1:00)
-- Press Ctrl+P to open the template manager
+- Press **Ctrl+P** to open the template manager (see below)
 - Optional note field for quick session notes
 - Optional tags field for comma-separated labels like `deep work, writing`
 - Press Enter to advance through fields and start from the note field
 - Tab switches fields
 - Use Up/Down in the task field to cycle through recent tasks
-- Press Ctrl+T to save the current form as a reusable template
-- Press Ctrl+R to rename the selected template using the current task name
-- Press Ctrl+D to delete the selected template
-- Press Ctrl+Y to duplicate the selected template
+- Press **Ctrl+T** to save the current form as a reusable template
 - Press ? to open the help overlay
+
+## Template Manager
+
+Press `Ctrl+P` from the input screen to manage your session templates.
+
+- **Navigation:** Use `Up` / `Down` to select a template.
+- **Select:** Press `Enter` to load the selected template into the input form.
+- **Rename:** Press `Ctrl+R` to rename the selected template using the current task name in the input field.
+- **Duplicate:** Press `Ctrl+Y` to create a copy of the selected template.
+- **Delete:** Press `Ctrl+D` to delete the selected template.
+- **Undo Delete:** Press `Ctrl+Z` immediately after deleting to restore the template.
+- **Exit:** Press `Esc` or `Ctrl+P` to return to the input screen.
 
 Timer mode:
 - Space to pause/resume

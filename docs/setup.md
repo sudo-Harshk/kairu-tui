@@ -1,8 +1,9 @@
 # Setup
 
 Prerequisites:
-- Go 1.21+ installed
+- Go 1.22+ installed
 - Git and a terminal
+- **mpv** (optional, recommended for Soundscapes)
 
 Clone:
 
@@ -46,6 +47,8 @@ quiet_hours_end: -1
 sound_command: ""
 auto_break: false
 sessions_before_break: 4
+soundscapes_dir: "soundscapes"
+soundscape_player: "mpv --loop --no-video"
 ```
 
 Create .env for Telegram (optional):
