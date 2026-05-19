@@ -47,6 +47,9 @@ type Config struct {
 	SoundscapePlayer     string   `yaml:"soundscape_player"`
 	PinnedTasks          []string `yaml:"pinned_tasks"`
 	TasksFile            string   `yaml:"tasks_file"`
+	GuardianMode         bool     `yaml:"guardian_mode"`
+	LockdownCommand      string   `yaml:"lockdown_command"`
+	UnlockCommand        string   `yaml:"unlock_command"`
 	TelegramBotToken     string   `yaml:"-"`
 	TelegramChatID       string   `yaml:"-"`
 }
@@ -73,6 +76,9 @@ var defaultConfig = Config{
 	SoundscapePlayer:     "mpv --loop --no-video",
 	PinnedTasks:          []string{},
 	TasksFile:            "tasks.txt",
+	GuardianMode:         false,
+	LockdownCommand:      "",
+	UnlockCommand:        "",
 	TelegramBotToken:     "",
 	TelegramChatID:       "",
 }
@@ -170,6 +176,8 @@ type model struct {
 	soundscapeIndex     int
 	activeSoundscapeCmd *exec.Cmd
 	internalLogs        []string
+	guardianLocked      bool
+	abortConfirmation   bool
 }
 
 func loadSoundscapes(dir string) ([]string, error) {
@@ -917,6 +925,12 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "ctrl+c", "q":
+		if m.guardianLocked {
+			m.abortConfirmation = false
+			m.appError = "Guardian Mode Active: Press Esc to Abort"
+			m.logInternal("GUARDIAN: Blocked exit attempt")
+			return m, nil
+		}
 		m.saveOnQuit()
 		return m, tea.Quit
 
@@ -969,6 +983,32 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "esc":
+		if m.guardianLocked {
+			if !m.abortConfirmation {
+				m.abortConfirmation = true
+				m.appError = "Confirm Abort? Press Esc again to force exit (Streak Penalty)"
+				return m, nil
+			}
+			// Penalty Abort
+			m.logInternal("GUARDIAN: Session Forcefully Aborted")
+			m.stopSoundscape()
+			m.runGuardianCommand(m.config.UnlockCommand)
+			m.guardianLocked = false
+			m.abortConfirmation = false
+			m.mode = "input"
+			m.taskName = ""
+			m.seconds = 0
+			m.sessionTarget = 0
+			m.sessionElapsed = 0
+			m.running = false
+			m.inputError = ""
+			m.textInput.SetValue("")
+			m.noteInput.SetValue("")
+			m.tagInput.SetValue("")
+			m = m.setInputFocus(focusTask)
+			return m, nil
+		}
+		m.abortConfirmation = false
 		if m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" || m.mode == "logs" {
 			if m.statsReturnMode != "" {
 				m.mode = m.statsReturnMode
@@ -1203,6 +1243,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.seconds = durationSeconds
 			m.sessionElapsed = 0
 			m.inputError = ""
+			if m.config.GuardianMode {
+				m.guardianLocked = true
+				m.runGuardianCommand(m.config.LockdownCommand)
+			}
 			return m, tea.Batch(tickCmd(), m.notifyCmd("session_start"))
 		}
 		if m.mode == "templates" {
@@ -1370,6 +1414,10 @@ func (m *model) stopSoundscape() {
 
 func (m model) completeSession() (tea.Model, tea.Cmd) {
 	m.stopSoundscape()
+	if m.guardianLocked {
+		m.runGuardianCommand(m.config.UnlockCommand)
+		m.guardianLocked = false
+	}
 	flushCmd := m.saveSession()
 	if m.mode == "timer" {
 		m.sessionCount++
@@ -1567,6 +1615,24 @@ func centerBlock(width int, content string) string {
 		return content
 	}
 	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(content)
+}
+
+func (m *model) runGuardianCommand(cmdStr string) {
+	if strings.TrimSpace(cmdStr) == "" {
+		return
+	}
+	m.logInternal("GUARDIAN: Running command: %s", cmdStr)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", cmdStr)
+	} else {
+		cmd = exec.Command("sh", "-c", cmdStr)
+	}
+	if err := cmd.Run(); err != nil {
+		m.logInternal("GUARDIAN: Command failed: %v", err)
+	} else {
+		m.logInternal("GUARDIAN: Command completed successfully")
+	}
 }
 
 func (m *model) setAppError(err error, context string) {
@@ -2518,12 +2584,25 @@ func renderTimerView(m model) string {
 	empty := barWidth - filled
 	progress := fmt.Sprintf("[%s%s] %.0f%%", strings.Repeat("█", filled), strings.Repeat("░", empty), remainingPct)
 
-	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help  [q] Quit"
+	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help"
+	if m.guardianLocked {
+		hint += "  [Esc] Abort"
+	} else {
+		hint += "  [q] Quit"
+	}
 	if !m.running {
-		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help  [q] Quit"
+		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help"
+		if m.guardianLocked {
+			hint += "  [Esc] Abort"
+		} else {
+			hint += "  [q] Quit"
+		}
 	}
 
 	header := fmt.Sprintf("%s • %s", modeStr, m.taskName)
+	if m.guardianLocked {
+		header = "🔒 Guardian Active • " + header
+	}
 	if tags := strings.Join(m.currentSessionTags(), ", "); tags != "" {
 		header += fmt.Sprintf(" [%s]", tags)
 	}
