@@ -1,7 +1,6 @@
 <div align="center">
   <h1>Kairu TUI</h1>
   <p>A keyboard-first, cross-platform productivity hub for the terminal</p>
-  <a href="https://github.com/sudo-Harshk/kairu-tui">Try it live →</a>
 </div>
 
 <div align="center">
@@ -134,7 +133,3 @@ Kairu features a unique **Recovery Mode**. If you miss exactly one day of work, 
 Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 
 ---
-
-<div align="center">
-  Built by [sudo-Harshk](https://github.com/sudo-Harshk) · <a href="https://github.com/sudo-Harshk/kairu-tui">Live Demo</a> · <a href="LICENSE">MIT License</a>
-</div>
