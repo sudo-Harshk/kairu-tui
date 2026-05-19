@@ -517,6 +517,7 @@ const (
 	settingsQuietEnd
 	settingsBackup
 	settingsRestore
+	settingsClearOutbox
 	settingsCount
 )
 
@@ -817,6 +818,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						} else {
 							m.setNotificationStatus("Backup restored from backup.json")
 						}
+					}
+					return m, nil
+				}
+				if m.settingsCursor == settingsClearOutbox {
+					m.notificationOutbox = nil
+					if err := saveNotificationOutbox(m.outboxFile, m.notificationOutbox); err != nil {
+						m.setAppError(err, "Failed to clear outbox")
+					} else {
+						m.setNotificationStatus("Notification queue cleared")
 					}
 					return m, nil
 				}
@@ -1323,7 +1333,7 @@ func (m *model) startSoundscape() {
 	args := append(parts[1:], path)
 	cmd := exec.Command(parts[0], args...)
 	if err := cmd.Start(); err != nil {
-		m.setAppError(err, "Failed to start soundscape")
+		m.setAppError(err, fmt.Sprintf("Audio player not found. Ensure '%s' is installed or update 'soundscape_player' in kairu.yaml", parts[0]))
 		return
 	}
 	m.activeSoundscapeCmd = cmd
@@ -3032,9 +3042,10 @@ func renderSettingsView(m model) string {
 			renderSettingLine(m.settingsCursor == settingsQuietStart, "Quiet start", hourLabel(m.config.QuietHoursStart)),
 			renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd)),
 		}),
-		renderSettingsSection(m.config, "Backup", []string{
+		renderSettingsSection(m.config, "Backup/Tools", []string{
 			renderSettingLine(m.settingsCursor == settingsBackup, "Create backup", "Write snapshot to backup.json"),
 			renderSettingLine(m.settingsCursor == settingsRestore, "Restore backup", "Load snapshot from backup.json"),
+			renderSettingLine(m.settingsCursor == settingsClearOutbox, "Clear queue", fmt.Sprintf("Delete %d pending notifications", len(m.notificationOutbox))),
 		}),
 	}, "\n\n")
 
@@ -3183,6 +3194,8 @@ func renderSettingsHintRow(m model) string {
 		return "Backup: Enter writes a project snapshot to backup.json."
 	case settingsRestore:
 		return "Restore: Enter loads backup.json and overwrites local project files."
+	case settingsClearOutbox:
+		return "Outbox: Enter clears the notification retry queue."
 	default:
 		return "Use Tab to move between sections."
 	}
