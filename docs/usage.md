@@ -14,7 +14,7 @@ Input mode:
 - Optional tags field for comma-separated labels like `deep work, writing`
 - Press Enter to advance through fields and start from the note field
 - Tab switches fields
-- Use Up/Down in the task field to cycle through recent tasks
+- Use Up/Down in the task field to cycle through **suggested tasks** (pinned, file-based, or recent)
 - Press **Ctrl+T** to save the current form as a reusable template
 - Press ? to open the help overlay
 

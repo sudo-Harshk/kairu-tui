@@ -43,10 +43,12 @@ type Config struct {
 	SoundCommand         string `yaml:"sound_command"`
 	AutoBreak            bool   `yaml:"auto_break"`
 	SessionsBeforeBreak  int    `yaml:"sessions_before_break"`
-	SoundscapesDir       string `yaml:"soundscapes_dir"`
-	SoundscapePlayer     string `yaml:"soundscape_player"`
-	TelegramBotToken     string `yaml:"-"`
-	TelegramChatID       string `yaml:"-"`
+	SoundscapesDir       string   `yaml:"soundscapes_dir"`
+	SoundscapePlayer     string   `yaml:"soundscape_player"`
+	PinnedTasks          []string `yaml:"pinned_tasks"`
+	TasksFile            string   `yaml:"tasks_file"`
+	TelegramBotToken     string   `yaml:"-"`
+	TelegramChatID       string   `yaml:"-"`
 }
 
 var defaultConfig = Config{
@@ -69,6 +71,8 @@ var defaultConfig = Config{
 	SessionsBeforeBreak:  4,
 	SoundscapesDir:       "soundscapes",
 	SoundscapePlayer:     "mpv --loop --no-video",
+	PinnedTasks:          []string{},
+	TasksFile:            "tasks.txt",
 	TelegramBotToken:     "",
 	TelegramChatID:       "",
 }
@@ -143,8 +147,8 @@ type model struct {
 	notificationStatus  string
 	lastDeletedTemplate *deletedTemplateState
 	taskName            string
-	recentTasks         []string
-	recentTaskIndex     int
+	taskSuggestions     []string
+	suggestionIndex     int
 	showRecentOverlay   bool
 	settingsCursor      int
 	entries             []Entry
@@ -165,6 +169,7 @@ type model struct {
 	soundscapes         []string
 	soundscapeIndex     int
 	activeSoundscapeCmd *exec.Cmd
+	internalLogs        []string
 }
 
 func loadSoundscapes(dir string) ([]string, error) {
@@ -718,13 +723,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setAppError(msg.err, "Notification failed")
 		} else {
 			if msg.status != "" {
-				m.notificationStatus = msg.status
+				m.setNotificationStatus(msg.status)
 			}
 			if msg.id != "" {
 				if m.deliveredNotifyIDs == nil {
 					m.deliveredNotifyIDs = make(map[string]time.Time)
 				}
 				m.deliveredNotifyIDs[msg.id] = time.Now()
+				m.logInternal("NOTIF: Delivered %s", msg.id)
 			}
 		}
 		return m, nil
@@ -738,12 +744,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			now := time.Now()
 			for _, id := range msg.deliveredIDs {
 				m.deliveredNotifyIDs[id] = now
+				m.logInternal("NOTIF: Flushed %s", id)
 			}
 		}
 		if msg.err != nil {
 			m.setAppError(msg.err, "Failed to save notification queue")
 		} else if msg.status != "" {
-			m.notificationStatus = msg.status
+			m.setNotificationStatus(msg.status)
 		}
 		if len(msg.remaining) > 0 {
 			m.setAppError(fmt.Errorf("%s", msg.remaining[0].LastError), "Notification queued for retry")
@@ -962,7 +969,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "esc":
-		if m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" {
+		if m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" || m.mode == "logs" {
 			if m.statsReturnMode != "" {
 				m.mode = m.statsReturnMode
 			} else {
@@ -982,9 +989,9 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "up":
-		if m.mode == "input" && m.focusedField == focusTask && len(m.recentTasks) > 0 {
+		if m.mode == "input" && m.focusedField == focusTask && len(m.taskSuggestions) > 0 {
 			m.showRecentOverlay = true
-			m = m.applyRecentTask(-1)
+			m = m.applyTaskSuggestion(-1)
 			return m, nil
 		}
 		if m.mode == "templates" {
@@ -993,9 +1000,9 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down":
-		if m.mode == "input" && m.focusedField == focusTask && len(m.recentTasks) > 0 {
+		if m.mode == "input" && m.focusedField == focusTask && len(m.taskSuggestions) > 0 {
 			m.showRecentOverlay = true
-			m = m.applyRecentTask(1)
+			m = m.applyTaskSuggestion(1)
 			return m, nil
 		}
 		if m.mode == "templates" {
@@ -1090,6 +1097,18 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = "settings"
 			return m, nil
 		}
+
+	case "L":
+		if m.mode != "logs" {
+			m.statsReturnMode = m.mode
+			m.mode = "logs"
+		} else {
+			m.mode = m.statsReturnMode
+			if m.mode == "" {
+				m.mode = "stats"
+			}
+		}
+		return m, nil
 
 	case "r":
 		if m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" {
@@ -1291,7 +1310,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode == "input" {
 		if m.focusedField == focusTask {
 			m.textInput, cmd = m.textInput.Update(msg)
-			m.recentTaskIndex = -1
+			m.suggestionIndex = -1
 			m.showRecentOverlay = false
 		} else if m.focusedField == focusDuration {
 			m.durationInput, cmd = m.durationInput.Update(msg)
@@ -1324,6 +1343,7 @@ func (m *model) startSoundscape() {
 	m.stopSoundscape()
 
 	track := m.soundscapes[m.soundscapeIndex]
+	m.logInternal("AUDIO: Starting %s", track)
 	path := filepath.Join(m.config.SoundscapesDir, track)
 
 	parts := strings.Fields(m.config.SoundscapePlayer)
@@ -1341,6 +1361,7 @@ func (m *model) startSoundscape() {
 
 func (m *model) stopSoundscape() {
 	if m.activeSoundscapeCmd != nil && m.activeSoundscapeCmd.Process != nil {
+		m.logInternal("AUDIO: Stopping playback")
 		_ = m.activeSoundscapeCmd.Process.Kill()
 		_ = m.activeSoundscapeCmd.Wait()
 		m.activeSoundscapeCmd = nil
@@ -1552,15 +1573,28 @@ func (m *model) setAppError(err error, context string) {
 	if err == nil {
 		return
 	}
-	if context == "" {
-		m.appError = err.Error()
-		return
+	msg := err.Error()
+	if context != "" {
+		msg = fmt.Sprintf("%s: %v", context, err)
 	}
-	m.appError = fmt.Sprintf("%s: %v", context, err)
+	m.appError = msg
+	m.logInternal("ERROR: %s", msg)
 }
 
 func (m *model) setNotificationStatus(status string) {
 	m.notificationStatus = status
+	if status != "" {
+		m.logInternal("STATUS: %s", status)
+	}
+}
+
+func (m *model) logInternal(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	entry := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), msg)
+	m.internalLogs = append(m.internalLogs, entry)
+	if len(m.internalLogs) > 100 {
+		m.internalLogs = m.internalLogs[len(m.internalLogs)-100:]
+	}
 }
 
 func defaultOutboxFile() string { return "notification_outbox.json" }
@@ -1584,11 +1618,12 @@ func reloadProjectState(m *model) error {
 		return err
 	}
 	soundscapes, _ := loadSoundscapes(cfg.SoundscapesDir)
+	fileTasks := loadTasksFromFile(cfg.TasksFile)
 	m.config = cfg
 	m.templates = templates
 	m.entries = entries
-	m.recentTasks = buildRecentTasks(entries)
-	m.recentTaskIndex = -1
+	m.taskSuggestions = buildTaskSuggestions(entries, cfg.PinnedTasks, fileTasks)
+	m.suggestionIndex = -1
 	m.streakState = computeStreakState(entries)
 	m.notificationOutbox = outbox
 	m.soundscapes = soundscapes
@@ -2011,40 +2046,85 @@ func (m *model) saveSession() tea.Cmd {
 		m.setAppError(err, "Failed to write entries")
 		return nil
 	}
+	m.logInternal("SESSION: Saved %s (%s)", m.taskName, formatDuration(duration))
 	m.entries = entries
-	m.recentTasks = buildRecentTasks(entries)
-	m.recentTaskIndex = -1
+	fileTasks := loadTasksFromFile(m.config.TasksFile)
+	m.taskSuggestions = buildTaskSuggestions(entries, m.config.PinnedTasks, fileTasks)
+	m.suggestionIndex = -1
 	return nil
 }
 
-func buildRecentTasks(entries []Entry) []string {
-	seen := make(map[string]struct{})
-	recent := make([]string, 0, len(entries))
-	for i := len(entries) - 1; i >= 0; i-- {
-		task := strings.TrimSpace(entries[i].Task)
-		if task == "" {
-			continue
-		}
-		key := strings.ToLower(task)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		recent = append(recent, task)
+func loadTasksFromFile(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
 	}
-	return recent
+	var tasks []string
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if t != "" {
+			tasks = append(tasks, t)
+		}
+	}
+	return tasks
 }
 
-func (m model) applyRecentTask(delta int) model {
-	if len(m.recentTasks) == 0 {
+func buildTaskSuggestions(entries []Entry, pinned []string, fileTasks []string) []string {
+	seen := make(map[string]struct{})
+	var suggestions []string
+
+	// 1. Pinned tasks (highest priority)
+	for _, t := range pinned {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		key := strings.ToLower(t)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			suggestions = append(suggestions, t)
+		}
+	}
+
+	// 2. File tasks
+	for _, t := range fileTasks {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		key := strings.ToLower(t)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			suggestions = append(suggestions, t)
+		}
+	}
+
+	// 3. Recent tasks from history
+	for i := len(entries) - 1; i >= 0; i-- {
+		t := strings.TrimSpace(entries[i].Task)
+		if t == "" {
+			continue
+		}
+		key := strings.ToLower(t)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			suggestions = append(suggestions, t)
+		}
+	}
+	return suggestions
+}
+
+func (m model) applyTaskSuggestion(delta int) model {
+	if len(m.taskSuggestions) == 0 {
 		return m
 	}
-	if m.recentTaskIndex < 0 || m.recentTaskIndex >= len(m.recentTasks) {
-		m.recentTaskIndex = 0
+	if m.suggestionIndex < 0 || m.suggestionIndex >= len(m.taskSuggestions) {
+		m.suggestionIndex = 0
 	} else {
-		m.recentTaskIndex = (m.recentTaskIndex + delta + len(m.recentTasks)) % len(m.recentTasks)
+		m.suggestionIndex = (m.suggestionIndex + delta + len(m.taskSuggestions)) % len(m.taskSuggestions)
 	}
-	m.textInput.SetValue(m.recentTasks[m.recentTaskIndex])
+	m.textInput.SetValue(m.taskSuggestions[m.suggestionIndex])
 	m.textInput.CursorEnd()
 	return m
 }
@@ -2285,6 +2365,8 @@ func (m model) View() string {
 		return renderHistoryView(m)
 	case "report":
 		return renderDailyReportView(m)
+	case "logs":
+		return renderLogView(m)
 	case "settings":
 		return renderSettingsView(m)
 	case "templates":
@@ -2345,18 +2427,18 @@ func renderInputView(m model) string {
 	}
 
 	recentOverlay := ""
-	if m.showRecentOverlay && len(m.recentTasks) > 0 {
+	if m.showRecentOverlay && len(m.taskSuggestions) > 0 {
 		limit := 5
-		if len(m.recentTasks) < limit {
-			limit = len(m.recentTasks)
+		if len(m.taskSuggestions) < limit {
+			limit = len(m.taskSuggestions)
 		}
-		overlayLines := []string{"Recent tasks:"}
+		overlayLines := []string{"Suggested tasks:"}
 		for i := 0; i < limit; i++ {
 			cursor := "  "
-			if i == m.recentTaskIndex {
+			if i == m.suggestionIndex {
 				cursor = "> "
 			}
-			overlayLines = append(overlayLines, cursor+m.recentTasks[i])
+			overlayLines = append(overlayLines, cursor+m.taskSuggestions[i])
 		}
 		recentOverlay = strings.Join(overlayLines, "\n")
 	}
@@ -2381,7 +2463,7 @@ func renderInputView(m model) string {
 %s
 
 [Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [Ctrl+M] Soundscapes   [?] Help   [q] Quit
-Templates: Left/Right while Template is focused   Up/Down to browse recent tasks
+Templates: Left/Right while Template is focused   Up/Down to browse suggested tasks
 
 `, templateLine, recoveryMsg, recentOverlay, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), m.tagInput.View(), errorBlock)
 }
@@ -3010,6 +3092,28 @@ func (m *model) exportDailyReport() (string, error) {
 	return path, nil
 }
 
+func renderLogView(m model) string {
+	lines := make([]string, 0, len(m.internalLogs))
+	// Show newest at bottom, or maybe newest at top?
+	// Heatmap/History show oldest at top usually.
+	// Logs are usually read top to bottom.
+	for _, l := range m.internalLogs {
+		lines = append(lines, "  "+l)
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "  (No logs recorded yet)")
+	}
+
+	footer := "[Esc] Back   [q] Quit"
+	block := renderBanner(m.config) + "\n" +
+		"╭─────────────────────────────────────╮\n" +
+		"│  Internal Event Logs                │\n" +
+		"╰─────────────────────────────────────╯\n\n" +
+		strings.Join(lines, "\n") + "\n\n" +
+		footer
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
+
 func renderSettingsView(m model) string {
 	footer := "[Tab] Switch   [Space] Toggle   [Left/Right] Adjust   [Enter] Run action   [Esc] Back   [q] Quit"
 	errorLine := renderAppError(m)
@@ -3259,6 +3363,7 @@ func renderHelpView(m model) string {
 		formatHelpLine("Esc", "Back to timer"),
 		formatHelpLine("R", "Daily report"),
 		formatHelpLine("S", "Settings"),
+		formatHelpLine("L", "Internal logs"),
 		"",
 	}
 	body := lipgloss.NewStyle().Width(35).Render(strings.Join(lines, "\n"))
@@ -3624,6 +3729,7 @@ func main() {
 	}
 
 	soundscapes, _ := loadSoundscapes(cfg.SoundscapesDir)
+	fileTasks := loadTasksFromFile(cfg.TasksFile)
 
 	m := model{
 		mode:               mode,
@@ -3634,8 +3740,8 @@ func main() {
 		focusedField:       initialFocus,
 		entries:            entryList,
 		templates:          templates,
-		recentTasks:        buildRecentTasks(entryList),
-		recentTaskIndex:    -1,
+		taskSuggestions:    buildTaskSuggestions(entryList, cfg.PinnedTasks, fileTasks),
+		suggestionIndex:    -1,
 		dataFile:           dataFile,
 		templateFile:       "templates.json",
 		configFile:         "kairu.yaml",
@@ -3646,7 +3752,9 @@ func main() {
 		deliveredNotifyIDs: make(map[string]time.Time),
 		soundscapes:        soundscapes,
 		soundscapeIndex:    -1,
+		internalLogs:       []string{},
 	}
+	m.logInternal("SYSTEM: Kairu TUI started")
 	m = m.setInputFocus(initialFocus)
 
 	if jobs, err := loadNotificationOutbox(m.outboxFile); err == nil {
