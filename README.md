@@ -42,6 +42,7 @@ Kairu operates on a local-first principle, ensuring all your data remains on you
 - **Local-First:** All session history (`entries.json`) and configuration remain local. No mandatory cloud accounts.
 - **Keyboard-Driven:** Every action, from starting a timer to managing templates, is accessible via hotkeys.
 - **Offline Resilience:** Notifications are queued in a local outbox if delivery fails, ensuring you never miss a streak update.
+- **Customizable Aesthetics:** Support for multiple color themes (Matrix, Cyberpunk, etc.) and layouts (Classic, Compact, Minimal).
 - **Zero Distraction:** No GUI overhead. Purely terminal-based focus.
 
 ### Pipeline Diagram
@@ -103,6 +104,9 @@ go build -o kairu
 - `Ctrl + M`: Toggle the Soundscape selector.
 - `S`: Open the Settings panel.
 - `?`: Toggle the help overlay.
+
+### Soundscapes
+Kairu includes a built-in Soundscape selector to help you maintain focus during work sessions. Press `Ctrl+M` from the input screen or while a timer is running to toggle the selector. To add your own audio tracks, simply place your `.mp3`, `.wav`, `.ogg`, `.flac`, or `.aac` files into the configured `soundscapes_dir` directory (defaults to `soundscapes/`). Audio playback requires an external player like `mpv` to be installed and configured in `kairu.yaml`.
 
 ### Streak Recovery
 Kairu features a unique **Recovery Mode**. If you miss exactly one day of work, the app enters recovery state. Completing a single session before midnight will "recover" your streak, preventing the demotivation of a reset.

@@ -52,6 +52,17 @@ Stats dashboard:
 - S to open the settings panel
 - ? for help
 
+## Appearance & Customization
+
+Kairu supports several visual themes and layouts to match your aesthetic and focus needs. Open the **Settings panel (S)** to customize:
+
+- **Themes:** Forest (default), Ocean, Ember, Mono, Matrix, Cyberpunk, and Minimalist.
+- **Layouts:** 
+  - **Classic:** The default view with a large ASCII clock.
+  - **Compact:** A space-saving view with a smaller border and clock.
+  - **Minimal:** A distraction-free view with no borders and standard text.
+- **Fonts:** Choose from different ASCII font styles for the classic layout.
+
 ## Streak & Recovery
 
 A **streak** counts the number of consecutive calendar days on which you completed at least one work session.

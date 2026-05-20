@@ -50,6 +50,7 @@ type Config struct {
 	GuardianMode         bool     `yaml:"guardian_mode"`
 	LockdownCommand      string   `yaml:"lockdown_command"`
 	UnlockCommand        string   `yaml:"unlock_command"`
+	Layout               string   `yaml:"layout"`
 	TelegramBotToken     string   `yaml:"-"`
 	TelegramChatID       string   `yaml:"-"`
 }
@@ -79,6 +80,7 @@ var defaultConfig = Config{
 	GuardianMode:         false,
 	LockdownCommand:      "",
 	UnlockCommand:        "",
+	Layout:               "classic",
 	TelegramBotToken:     "",
 	TelegramChatID:       "",
 }
@@ -526,6 +528,7 @@ const (
 	settingsEndingSoon
 	settingsTheme
 	settingsFont
+	settingsLayout
 	settingsQuietStart
 	settingsQuietEnd
 	settingsBackup
@@ -542,13 +545,18 @@ type themeStyle struct {
 }
 
 var themeStyles = map[string]themeStyle{
-	"forest": {accent: "10", primary: "2", notice: "3", warning: "1"},
-	"ocean":  {accent: "14", primary: "6", notice: "12", warning: "9"},
-	"ember":  {accent: "208", primary: "214", notice: "220", warning: "196"},
-	"mono":   {accent: "15", primary: "7", notice: "8", warning: "9"},
+	"forest":     {accent: "10", primary: "2", notice: "3", warning: "1"},
+	"ocean":      {accent: "14", primary: "6", notice: "12", warning: "9"},
+	"ember":      {accent: "208", primary: "214", notice: "220", warning: "196"},
+	"mono":       {accent: "15", primary: "7", notice: "8", warning: "9"},
+	"matrix":     {accent: "46", primary: "22", notice: "28", warning: "1"},
+	"cyberpunk":  {accent: "201", primary: "51", notice: "226", warning: "196"},
+	"minimalist": {accent: "244", primary: "248", notice: "240", warning: "1"},
 }
 
-var themeOrder = []string{"forest", "ocean", "ember", "mono"}
+var themeOrder = []string{"forest", "ocean", "ember", "mono", "matrix", "cyberpunk", "minimalist"}
+
+var layoutOrder = []string{"classic", "compact", "minimal"}
 
 type timerFont struct {
 	digits map[rune][]string
@@ -1528,6 +1536,8 @@ func (m *model) toggleSetting() {
 		m.config.Theme = nextValue(themeOrder, m.config.Theme, 1)
 	case settingsFont:
 		m.config.Font = nextValue(fontOrder, m.config.Font, 1)
+	case settingsLayout:
+		m.config.Layout = nextValue(layoutOrder, m.config.Layout, 1)
 	}
 	if err := saveConfigFile(m.configFile, m.config); err != nil {
 		m.setAppError(err, "Failed to save config")
@@ -1540,6 +1550,8 @@ func (m *model) adjustSetting(delta int) {
 		m.config.Theme = nextValue(themeOrder, m.config.Theme, delta)
 	case settingsFont:
 		m.config.Font = nextValue(fontOrder, m.config.Font, delta)
+	case settingsLayout:
+		m.config.Layout = nextValue(layoutOrder, m.config.Layout, delta)
 	case settingsQuietStart:
 		m.config.QuietHoursStart = wrapHour(m.config.QuietHoursStart + delta)
 	case settingsQuietEnd:
@@ -1793,6 +1805,16 @@ func normalizeFont(name string) string {
 	return defaultConfig.Font
 }
 
+func normalizeLayout(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, candidate := range layoutOrder {
+		if candidate == name {
+			return candidate
+		}
+	}
+	return defaultConfig.Layout
+}
+
 func activeTheme(cfg Config) themeStyle {
 	if theme, ok := themeStyles[normalizeTheme(cfg.Theme)]; ok {
 		return theme
@@ -1837,6 +1859,10 @@ func themeLabel(name string) string {
 func fontLabel(name string) string {
 	font := activeFont(Config{Font: normalizeFont(name)})
 	return font.label
+}
+
+func layoutLabel(name string) string {
+	return strings.Title(normalizeLayout(name))
 }
 
 func (m model) quietHoursActive(now time.Time) bool {
@@ -2561,6 +2587,7 @@ Elapsed: %s
 func renderTimerView(m model) string {
 	timeStr := formatClock(m.seconds)
 	theme := activeTheme(m.config)
+	layout := normalizeLayout(m.config.Layout)
 
 	modeStr := "WORK"
 	if m.mode == "break" {
@@ -2617,16 +2644,6 @@ func renderTimerView(m model) string {
 		track := strings.TrimSuffix(m.soundscapes[m.soundscapeIndex], filepath.Ext(m.soundscapes[m.soundscapeIndex]))
 		header += fmt.Sprintf("  🎵 %s", track)
 	}
-	ascii := renderASCIITimer(timeStr, m.config)
-	innerWidth := lipgloss.Width(progress)
-	if asciiWidth := lipgloss.Width(ascii); asciiWidth > innerWidth {
-		innerWidth = asciiWidth
-	}
-	ascii = themedStyle(m.config, theme.accent).Width(innerWidth).Align(lipgloss.Center).Render(ascii)
-	timerFrame := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		Padding(0, 1).
-		Render(fmt.Sprintf("%s\n\n%s", ascii, progress))
 
 	errorLine := renderAppError(m)
 	statusLine := renderNotificationStatus(m)
@@ -2637,11 +2654,32 @@ func renderTimerView(m model) string {
 	if statusLine != "" {
 		details = fmt.Sprintf("%s\n%s", details, statusLine)
 	}
-	block := fmt.Sprintf(`%s
 
-%s
+	var block string
+	switch layout {
+	case "minimal":
+		timerLine := themedStyle(m.config, theme.accent).Bold(true).Render(timeStr)
+		block = fmt.Sprintf("%s\n\n%s  %s\n\n%s", header, timerLine, progress, details)
+	case "compact":
+		timerFrame := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			Padding(0, 1).
+			Render(fmt.Sprintf("%s  %s", themedStyle(m.config, theme.accent).Bold(true).Render(timeStr), progress))
+		block = fmt.Sprintf("%s\n\n%s\n\n%s", header, timerFrame, details)
+	default: // classic
+		ascii := renderASCIITimer(timeStr, m.config)
+		innerWidth := lipgloss.Width(progress)
+		if asciiWidth := lipgloss.Width(ascii); asciiWidth > innerWidth {
+			innerWidth = asciiWidth
+		}
+		ascii = themedStyle(m.config, theme.accent).Width(innerWidth).Align(lipgloss.Center).Render(ascii)
+		timerFrame := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			Padding(0, 1).
+			Render(fmt.Sprintf("%s\n\n%s", ascii, progress))
+		block = fmt.Sprintf("%s\n\n%s\n\n%s", header, timerFrame, details)
+	}
 
-%s`, header, timerFrame, details)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
@@ -3205,11 +3243,10 @@ func renderSettingsView(m model) string {
 	}
 
 	leftColumn := strings.Join([]string{
-		renderSettingsSection(m.config, "Theme", []string{
+		renderSettingsSection(m.config, "Appearance", []string{
 			renderSettingLine(m.settingsCursor == settingsTheme, "Theme", themeLabel(m.config.Theme)),
-		}),
-		renderSettingsSection(m.config, "Typography", []string{
 			renderSettingLine(m.settingsCursor == settingsFont, "Timer font", fontLabel(m.config.Font)),
+			renderSettingLine(m.settingsCursor == settingsLayout, "Timer layout", layoutLabel(m.config.Layout)),
 		}),
 		renderSettingsSection(m.config, "Notifications", []string{
 			renderSettingLine(m.settingsCursor == settingsNotifications, "Notifications", boolLabel(m.config.Notifications)),
@@ -3352,6 +3389,7 @@ func renderSettingsPreview(m model) string {
 
 	themeLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.accent)).Render("Theme: " + themeLabel(m.config.Theme))
 	fontLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.primary)).Render("Font: " + font.label)
+	layoutLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.notice)).Render("Layout: " + layoutLabel(m.config.Layout))
 	timerBlock := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.accent)).Render(strings.Join(lines, "\n"))
 
 	return fmt.Sprintf(`╭─────────────────────────────────────╮
@@ -3360,7 +3398,8 @@ func renderSettingsPreview(m model) string {
 
 %s
 %s
-%s`, themeLine, fontLine, timerBlock)
+%s
+%s`, themeLine, fontLine, layoutLine, timerBlock)
 }
 
 func renderSettingsHintRow(m model) string {
@@ -3369,6 +3408,8 @@ func renderSettingsHintRow(m model) string {
 		return "Theme: Left/Right cycles presets. Space also cycles."
 	case settingsFont:
 		return "Typography: Left/Right cycles timer fonts. Space also cycles."
+	case settingsLayout:
+		return "Layout: Left/Right cycles timer layouts. Space also cycles."
 	case settingsQuietStart, settingsQuietEnd:
 		return "Quiet hours: Left/Right adjusts the hour."
 	case settingsNotifications, settingsDesktop, settingsWorkComplete, settingsBreakComplete, settingsSessionStart, settingsSessionEnd, settingsPauseResume, settingsEndingSoon:
