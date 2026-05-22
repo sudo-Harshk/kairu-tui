@@ -183,17 +183,24 @@ type model struct {
 }
 
 func loadSoundscapes(dir string) ([]string, error) {
+	var soundscapes []string
+	soundscapes = append(soundscapes,
+		"[Synth] White Noise",
+		"[Synth] Pink Noise",
+		"[Synth] Brown Noise",
+		"[Synth] Focus Binaural Beats",
+	)
 	if dir == "" {
-		return []string{}, nil
+		return soundscapes, nil
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return []string{}, nil
+			return soundscapes, nil
 		}
 		return nil, err
 	}
-	var soundscapes []string
+	var fileTracks []string
 	extensions := map[string]bool{
 		".mp3":  true,
 		".wav":  true,
@@ -207,10 +214,11 @@ func loadSoundscapes(dir string) ([]string, error) {
 		}
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
 		if extensions[ext] {
-			soundscapes = append(soundscapes, entry.Name())
+			fileTracks = append(fileTracks, entry.Name())
 		}
 	}
-	sort.Strings(soundscapes)
+	sort.Strings(fileTracks)
+	soundscapes = append(soundscapes, fileTracks...)
 	return soundscapes, nil
 }
 
@@ -1297,6 +1305,20 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case " ", "space":
 		if m.mode == "timer" || m.mode == "break" {
 			m.running = !m.running
+
+			// Duck volume or pause/resume native synth if running
+			if m.soundscapeIndex >= 0 && m.soundscapeIndex < len(m.soundscapes) {
+				track := m.soundscapes[m.soundscapeIndex]
+				if IsSyntheticTrack(track) {
+					pauseNativeSynth(!m.running)
+					if m.running {
+						fadeNativeVolume(1.0, 500*time.Millisecond)
+					} else {
+						fadeNativeVolume(0.15, 200*time.Millisecond)
+					}
+				}
+			}
+
 			notifyC := m.notifyCmd("pause_resume")
 			if m.running && m.seconds > 0 {
 				return m, tea.Batch(tickCmd(), notifyC)
@@ -1396,6 +1418,16 @@ func (m *model) startSoundscape() {
 
 	track := m.soundscapes[m.soundscapeIndex]
 	m.logInternal("AUDIO: Starting %s", track)
+
+	if IsSyntheticTrack(track) {
+		if err := startNativeSynth(track); err != nil {
+			m.setAppError(err, "Failed to start native synthesizer")
+		}
+		// Trigger a gentle volume fade-in
+		fadeNativeVolume(1.0, 500*time.Millisecond)
+		return
+	}
+
 	path := filepath.Join(m.config.SoundscapesDir, track)
 
 	parts := strings.Fields(m.config.SoundscapePlayer)
@@ -1412,6 +1444,10 @@ func (m *model) startSoundscape() {
 }
 
 func (m *model) stopSoundscape() {
+	// Stop native synthesizer
+	stopNativeSynth()
+
+	// Stop external player
 	if m.activeSoundscapeCmd != nil && m.activeSoundscapeCmd.Process != nil {
 		m.logInternal("AUDIO: Stopping playback")
 		_ = m.activeSoundscapeCmd.Process.Kill()
@@ -3847,6 +3883,9 @@ func main() {
 	if len(templates) > 0 {
 		initialFocus = focusTemplate
 	}
+
+	// Proactively initialize native audio speaker
+	_ = initSpeaker()
 
 	soundscapes, _ := loadSoundscapes(cfg.SoundscapesDir)
 	fileTasks := loadTasksFromFile(cfg.TasksFile)

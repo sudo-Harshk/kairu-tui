@@ -869,3 +869,96 @@ func textInputWithValue(value string) textinput.Model {
 	ti.SetValue(value)
 	return ti
 }
+
+func TestIsSyntheticTrack(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		track string
+		want  bool
+	}{
+		{"[Synth] White Noise", true},
+		{"[Synth] Pink Noise", true},
+		{"[Synth] Brown Noise", true},
+		{"[Synth] Focus Binaural Beats", true},
+		{"rain.mp3", false},
+		{"focus.wav", false},
+		{"", false},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.track, func(t *testing.T) {
+			t.Parallel()
+			got := IsSyntheticTrack(tc.track)
+			if got != tc.want {
+				t.Fatalf("IsSyntheticTrack(%q) = %t, want %t", tc.track, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStreamers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("WhiteNoise", func(t *testing.T) {
+		s := &WhiteNoiseStreamer{baseVolume: 1.0}
+		samples := make([][2]float64, 100)
+		n, ok := s.Stream(samples)
+		if !ok || n != len(samples) {
+			t.Fatalf("expected to stream %d samples, got %d", len(samples), n)
+		}
+		for i, sample := range samples {
+			if sample[0] < -1.0 || sample[0] > 1.0 || sample[1] < -1.0 || sample[1] > 1.0 {
+				t.Fatalf("sample %d is out of bounds: %v", i, sample)
+			}
+		}
+	})
+
+	t.Run("BrownNoise", func(t *testing.T) {
+		s := &BrownNoiseStreamer{baseVolume: 1.0}
+		samples := make([][2]float64, 100)
+		n, ok := s.Stream(samples)
+		if !ok || n != len(samples) {
+			t.Fatalf("expected to stream %d samples, got %d", len(samples), n)
+		}
+		for i, sample := range samples {
+			if sample[0] < -1.0 || sample[0] > 1.0 || sample[1] < -1.0 || sample[1] > 1.0 {
+				t.Fatalf("sample %d is out of bounds: %v", i, sample)
+			}
+		}
+	})
+
+	t.Run("PinkNoise", func(t *testing.T) {
+		s := &PinkNoiseStreamer{baseVolume: 1.0}
+		samples := make([][2]float64, 100)
+		n, ok := s.Stream(samples)
+		if !ok || n != len(samples) {
+			t.Fatalf("expected to stream %d samples, got %d", len(samples), n)
+		}
+		for i, sample := range samples {
+			if sample[0] < -1.0 || sample[0] > 1.0 || sample[1] < -1.0 || sample[1] > 1.0 {
+				t.Fatalf("sample %d is out of bounds: %v", i, sample)
+			}
+		}
+	})
+
+	t.Run("BinauralBeat", func(t *testing.T) {
+		s := &BinauralBeatStreamer{
+			freqL:      115.0,
+			freqR:      125.0,
+			sampleRate: 44100.0,
+			baseVolume: 1.0,
+		}
+		samples := make([][2]float64, 100)
+		n, ok := s.Stream(samples)
+		if !ok || n != len(samples) {
+			t.Fatalf("expected to stream %d samples, got %d", len(samples), n)
+		}
+		for i, sample := range samples {
+			if sample[0] < -1.0 || sample[0] > 1.0 || sample[1] < -1.0 || sample[1] > 1.0 {
+				t.Fatalf("sample %d is out of bounds: %v", i, sample)
+			}
+		}
+	})
+}

@@ -105,7 +105,16 @@ go build -o kairu
 - `?`: Toggle the help overlay.
 
 ### Soundscapes
-Kairu includes a built-in Soundscape selector to help you maintain focus during work sessions. Press `Ctrl+M` from the input screen or while a timer is running to toggle the selector. To add your own audio tracks, simply place your `.mp3`, `.wav`, `.ogg`, `.flac`, or `.aac` files into the configured `soundscapes_dir` directory (defaults to `soundscapes/`). Audio playback requires an external player like `mpv` to be installed and configured in `kairu.yaml`.
+Kairu includes a built-in Soundscape selector to help you maintain focus during work sessions. Press `Ctrl+M` from the input screen or while a timer is running to toggle the selector.
+
+* **Natively Synthesized Tracks (No Dependencies):** Kairu features a built-in pure Go synthesizer engine that generates focus frequencies directly. These do not require any external audio players or files:
+  * `[Synth] White Noise`
+  * `[Synth] Pink Noise` (1/f distribution for gentle focus)
+  * `[Synth] Brown Noise` (1/f² distribution for deep isolation)
+  * `[Synth] Focus Binaural Beats` (Detuned carrier waves to induce alpha brainwave beats)
+* **Custom Audio Tracks (External Player):** To play your own files, place `.mp3`, `.wav`, `.ogg`, `.flac`, or `.m4a` files in the `soundscapes_dir` (default: `soundscapes/`). This requires an external player like `mpv` configured in `kairu.yaml`.
+
+*Kairu automatically performs smooth volume ducking (fading) on native soundscapes when you pause/resume the timer.*
 
 ### Streak Recovery
 Kairu features a unique **Recovery Mode**. If you miss exactly one day of work, the app enters recovery state. Completing a single session before midnight will "recover" your streak, preventing the demotivation of a reset.

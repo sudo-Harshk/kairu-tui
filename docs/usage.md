@@ -96,16 +96,25 @@ The Analytics/Stats screen (press `Tab` during a timer session) shows:
 - **Recovery status** — whether recovery is available, active today, or the streak is lost
 
 ## Soundscapes
-
+ 
 Press `Ctrl+M` from the input screen or while a timer is running to open the Soundscape selector.
+ 
+* **Built-in Synthetic Tracks (No External Player Required):** Kairu features an integrated synthesizer generated natively in Go:
+  - `[Synth] White Noise`
+  - `[Synth] Pink Noise` (gentle, steady frequency mask)
+  - `[Synth] Brown Noise` (deeper, low-frequency red noise)
+  - `[Synth] Focus Binaural Beats` (stereo carrier waves to generate a 10Hz alpha wave)
+* **Custom Tracks:** You can still load external files from `soundscapes_dir` (default: `soundscapes/`). This triggers the player command (e.g. `mpv`) specified in your config.
 
-- Use `Up` / `Down` to navigate the list of audio files found in `soundscapes_dir`
-- Press `Enter` to activate the highlighted track (or select `None` to stop playback)
-- Press `Esc` or `Ctrl+M` again to cancel
-- Playback only runs during work sessions; it stops automatically on break, end, or quit
-- The active track is shown in the timer header as `🎵 Track Name`
+Control behavior:
+- Use `Up` / `Down` to navigate the track list.
+- Press `Enter` to activate the highlighted track (or select `None` to stop playback).
+- Press `Esc` or `Ctrl+M` again to cancel.
+- Playback only runs during work sessions; it stops automatically on break, end, or quit.
+- Pausing/resuming work automatically ducks (fades) the volume of the native synthesizers.
+- The active track is shown in the timer header as `🎵 Track Name`.
 
-To add tracks, drop `.mp3`, `.wav`, `.ogg`, `.flac`, or `.aac` files into the configured `soundscapes_dir` directory (default: `soundscapes/`).
+To add custom tracks, drop `.mp3`, `.wav`, `.ogg`, `.flac`, or `.m4a` files into your configured `soundscapes_dir`.
 
 Errors:
 - Input validation errors show inline under the fields.
