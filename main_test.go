@@ -561,8 +561,8 @@ func TestTickContinuesWhileSettingsOpen(t *testing.T) {
 	if updated.seconds != 9 {
 		t.Fatalf("expected seconds to continue ticking in settings, got %d", updated.seconds)
 	}
-	if cmd != nil {
-		t.Fatalf("expected no extra tick command while a modal is open")
+	if cmd == nil {
+		t.Fatalf("expected background tick to be scheduled while settings are open")
 	}
 }
 
@@ -991,4 +991,52 @@ func TestBinauralPresets(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDeliverNotificationConcurrent(t *testing.T) {
+	// 1. Test case: No active channels enabled
+	t.Run("NoChannels", func(t *testing.T) {
+		cfg := Config{
+			DesktopNotifications: false,
+			SoundCommand:         "",
+		}
+		status, err := deliverNotification(cfg, "Test", "Body")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if status != "No active notification channels" {
+			t.Fatalf("unexpected status: %q", status)
+		}
+	})
+
+	// 2. Test case: Sound channel succeeds
+	t.Run("SoundSuccess", func(t *testing.T) {
+		cmd := "echo notification_test"
+		cfg := Config{
+			DesktopNotifications: false,
+			SoundCommand:         cmd,
+		}
+		status, err := deliverNotification(cfg, "Test", "Body")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(status, "Delivered via sound") {
+			t.Fatalf("unexpected status: %q", status)
+		}
+	})
+
+	// 3. Test case: Sound channel fails (executable not found)
+	t.Run("SoundFailure", func(t *testing.T) {
+		cfg := Config{
+			DesktopNotifications: false,
+			SoundCommand:         "invalid_command_nonexistent_xyz",
+		}
+		status, err := deliverNotification(cfg, "Test", "Body")
+		if err == nil {
+			t.Fatalf("expected error, got nil status=%q", status)
+		}
+		if !strings.Contains(err.Error(), "all channels failed") || (!strings.Contains(err.Error(), "invalid_command_nonexistent_xyz") && !strings.Contains(err.Error(), "exit status 1") && !strings.Contains(err.Error(), "exit status 127")) {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
 }

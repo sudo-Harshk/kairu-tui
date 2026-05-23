@@ -679,6 +679,12 @@ func (m model) activeSessionMode() string {
 		return m.statsReturnMode
 	case "report":
 		return m.statsReturnMode
+	case "templates":
+		return m.templateReturnMode
+	case "soundscapes":
+		return m.soundscapeReturnMode
+	case "logs":
+		return m.statsReturnMode
 	case "help":
 		switch m.helpReturnMode {
 		case "settings":
@@ -756,7 +762,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				model, cmd := m.completeSession()
 				return model, tea.Batch(notifyC, cmd)
 			}
-			if m.mode == "timer" || m.mode == "break" {
+			if m.mode == "timer" || m.mode == "break" || m.mode == "settings" || m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" || m.mode == "help" || m.mode == "logs" || m.mode == "templates" || m.mode == "soundscapes" {
 				return m, tickCmd()
 			}
 			return m, nil
@@ -846,7 +852,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.settingsCursor = (m.settingsCursor + 1) % settingsCount
 				return m, nil
-			case "shift+tab":
+			case "down", "j":
+				m.settingsCursor = (m.settingsCursor + 1) % settingsCount
+				return m, nil
+			case "shift+tab", "up", "k":
 				m.settingsCursor--
 				if m.settingsCursor < 0 {
 					m.settingsCursor = settingsCount - 1
@@ -891,7 +900,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.adjustSetting(1)
 				return m, nil
 			case "esc":
-				target := m.returnModeForModal()
+				target := m.settingsReturnMode
 				if target == "" {
 					target = "timer"
 				}
@@ -1169,7 +1178,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "s":
 		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" {
-			m.settingsReturnMode = m.returnModeForModal()
+			m.settingsReturnMode = m.mode
 			m.settingsCursor = settingsNotifications
 			m.mode = "settings"
 			return m, nil
@@ -2154,11 +2163,17 @@ func sendNotification(cfg Config, job notificationJob) (string, error) {
 }
 
 func deliverNotification(cfg Config, title, body string) (string, error) {
+	var successes []string
+	var failures []string
+
 	if cfg.DesktopNotifications {
 		if err := sendDesktopNotification(title, body); err == nil {
-			return "Desktop notification delivered", nil
+			successes = append(successes, "desktop")
+		} else {
+			failures = append(failures, fmt.Sprintf("desktop: %v", err))
 		}
 	}
+
 	if cfg.SoundCommand != "" {
 		var soundErr error
 		if runtime.GOOS == "windows" {
@@ -2167,15 +2182,32 @@ func deliverNotification(cfg Config, title, body string) (string, error) {
 			soundErr = exec.Command("sh", "-c", cfg.SoundCommand).Run()
 		}
 		if soundErr == nil {
-			return "Sound fallback delivered", nil
+			successes = append(successes, "sound")
+		} else {
+			failures = append(failures, fmt.Sprintf("sound: %v", soundErr))
 		}
 	}
+
 	if token := strings.TrimSpace(cfg.TelegramBotToken); token != "" && strings.TrimSpace(cfg.TelegramChatID) != "" {
 		if err := sendTelegramMessage(token, strings.TrimSpace(cfg.TelegramChatID), body); err == nil {
-			return "Telegram fallback delivered", nil
+			successes = append(successes, "telegram")
+		} else {
+			failures = append(failures, fmt.Sprintf("telegram: %v", err))
 		}
 	}
-	return "", fmt.Errorf("all notification channels failed")
+
+	if len(successes) > 0 {
+		status := "Delivered via " + strings.Join(successes, ", ")
+		if len(failures) > 0 {
+			status += " (failed: " + strings.Join(failures, "; ") + ")"
+		}
+		return status, nil
+	}
+
+	if len(failures) > 0 {
+		return "", fmt.Errorf("all channels failed: %s", strings.Join(failures, "; "))
+	}
+	return "No active notification channels", nil
 }
 
 func sendDesktopNotification(title, body string) error {

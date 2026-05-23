@@ -39,8 +39,9 @@ Kairu operates on a local-first principle, ensuring all your data remains on you
 ### Hard Rules
 
 - **Local-First:** All session history (`entries.json`) and configuration remain local. No mandatory cloud accounts.
-- **Keyboard-Driven:** Every action, from starting a timer to managing templates, is accessible via hotkeys.
-- **Offline Resilience:** Notifications are queued in a local outbox if delivery fails, ensuring you never miss a streak update.
+- **Keyboard-Driven & Accessible:** Every action, from starting a timer to managing templates and navigating settings, is accessible via hotkeys and arrow keys.
+- **Offline Resilience & Concurrent Alerts:** Active alerts trigger on all enabled channels concurrently (Desktop toast, Sound, and Telegram Bot). Local outbox queue persists unsent notifications on failures, ensuring you never lose a streak.
+- **Robust Session Retention:** Countdown timers continue to tick in the background while settings, help, templates, and dashboard screens are open, and your active session is safely written to disk even if you quit the app from any modal view.
 - **Customizable Aesthetics:** Support for multiple color themes (Matrix, Cyberpunk, etc.) and layouts (Classic, Compact, Minimal).
 - **Zero Distraction:** No GUI overhead. Purely terminal-based focus.
 
@@ -102,6 +103,10 @@ go build -o kairu
 - `Ctrl + P`: Open the Template Manager.
 - `Ctrl + M`: Toggle the Soundscape selector.
 - `S`: Open the Settings panel.
+  - **Vertical Navigation:** Move cursor using `Up`/`Down` Arrows, `j`/`k`, or `Tab`/`Shift+Tab`.
+  - **Toggling & Selection:** Cycle presets or toggle options using `Space` or `Enter`.
+  - **Incremental Adjustment:** Change volume levels, frequency offsets, or hours using `Left`/`Right` Arrows or `h`/`l`.
+  - **Exit Settings:** Exit back to your previous active view (timer, break, or stats) using `Esc`.
 - `?`: Toggle the help overlay.
 
 ### Soundscapes
