@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -51,6 +52,12 @@ type Config struct {
 	LockdownCommand      string   `yaml:"lockdown_command"`
 	UnlockCommand        string   `yaml:"unlock_command"`
 	Layout               string   `yaml:"layout"`
+	SynthVolume          float64  `yaml:"synth_volume"`
+	BinauralPreset       string   `yaml:"binaural_preset"`
+	BinauralCarrier      float64  `yaml:"binaural_carrier"`
+	BinauralBeat         float64  `yaml:"binaural_beat"`
+	FadeInDuration       int      `yaml:"fade_in_duration"`
+	FadeOutDuration      int      `yaml:"fade_out_duration"`
 	TelegramBotToken     string   `yaml:"-"`
 	TelegramChatID       string   `yaml:"-"`
 }
@@ -81,6 +88,12 @@ var defaultConfig = Config{
 	LockdownCommand:      "",
 	UnlockCommand:        "",
 	Layout:               "classic",
+	SynthVolume:          0.5,
+	BinauralPreset:       "alpha",
+	BinauralCarrier:      120.0,
+	BinauralBeat:         10.0,
+	FadeInDuration:       500,
+	FadeOutDuration:      200,
 	TelegramBotToken:     "",
 	TelegramChatID:       "",
 }
@@ -539,6 +552,12 @@ const (
 	settingsLayout
 	settingsQuietStart
 	settingsQuietEnd
+	settingsSynthVolume
+	settingsBinauralPreset
+	settingsBinauralCarrier
+	settingsBinauralBeat
+	settingsFadeIn
+	settingsFadeOut
 	settingsBackup
 	settingsRestore
 	settingsClearOutbox
@@ -565,6 +584,8 @@ var themeStyles = map[string]themeStyle{
 var themeOrder = []string{"forest", "ocean", "ember", "mono", "matrix", "cyberpunk", "minimalist"}
 
 var layoutOrder = []string{"classic", "compact", "minimal"}
+
+var binauralPresetsOrder = []string{"alpha", "beta", "theta", "delta", "custom"}
 
 type timerFont struct {
 	digits map[rune][]string
@@ -1312,9 +1333,9 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if IsSyntheticTrack(track) {
 					pauseNativeSynth(!m.running)
 					if m.running {
-						fadeNativeVolume(1.0, 500*time.Millisecond)
+						fadeNativeVolume(m.config.SynthVolume, time.Duration(m.config.FadeInDuration)*time.Millisecond)
 					} else {
-						fadeNativeVolume(0.15, 200*time.Millisecond)
+						fadeNativeVolume(0.15 * m.config.SynthVolume, time.Duration(m.config.FadeOutDuration)*time.Millisecond)
 					}
 				}
 			}
@@ -1420,11 +1441,11 @@ func (m *model) startSoundscape() {
 	m.logInternal("AUDIO: Starting %s", track)
 
 	if IsSyntheticTrack(track) {
-		if err := startNativeSynth(track); err != nil {
+		if err := startNativeSynth(track, m.config); err != nil {
 			m.setAppError(err, "Failed to start native synthesizer")
 		}
 		// Trigger a gentle volume fade-in
-		fadeNativeVolume(1.0, 500*time.Millisecond)
+		fadeNativeVolume(m.config.SynthVolume, time.Duration(m.config.FadeInDuration)*time.Millisecond)
 		return
 	}
 
@@ -1574,6 +1595,58 @@ func (m *model) toggleSetting() {
 		m.config.Font = nextValue(fontOrder, m.config.Font, 1)
 	case settingsLayout:
 		m.config.Layout = nextValue(layoutOrder, m.config.Layout, 1)
+	case settingsSynthVolume:
+		m.config.SynthVolume += 0.1
+		if m.config.SynthVolume > 1.05 {
+			m.config.SynthVolume = 0.0
+		}
+		// Apply volume immediately if playing
+		setNativeVolume(m.config.SynthVolume)
+	case settingsBinauralPreset:
+		m.config.BinauralPreset = nextValue(binauralPresetsOrder, m.config.BinauralPreset, 1)
+		updateActiveBinauralFrequencies(m.config)
+	case settingsBinauralCarrier:
+		carriers := []float64{70.0, 100.0, 120.0, 150.0, 200.0}
+		idx := -1
+		for i, c := range carriers {
+			if math.Abs(m.config.BinauralCarrier-c) < 0.1 {
+				idx = i
+				break
+			}
+		}
+		m.config.BinauralCarrier = carriers[(idx+1)%len(carriers)]
+		updateActiveBinauralFrequencies(m.config)
+	case settingsBinauralBeat:
+		beats := []float64{3.0, 6.0, 10.0, 15.0, 20.0}
+		idx := -1
+		for i, b := range beats {
+			if math.Abs(m.config.BinauralBeat-b) < 0.1 {
+				idx = i
+				break
+			}
+		}
+		m.config.BinauralBeat = beats[(idx+1)%len(beats)]
+		updateActiveBinauralFrequencies(m.config)
+	case settingsFadeIn:
+		fades := []int{100, 200, 500, 1000, 2000}
+		idx := -1
+		for i, f := range fades {
+			if m.config.FadeInDuration == f {
+				idx = i
+				break
+			}
+		}
+		m.config.FadeInDuration = fades[(idx+1)%len(fades)]
+	case settingsFadeOut:
+		fades := []int{100, 200, 500, 1000, 2000}
+		idx := -1
+		for i, f := range fades {
+			if m.config.FadeOutDuration == f {
+				idx = i
+				break
+			}
+		}
+		m.config.FadeOutDuration = fades[(idx+1)%len(fades)]
 	}
 	if err := saveConfigFile(m.configFile, m.config); err != nil {
 		m.setAppError(err, "Failed to save config")
@@ -1592,6 +1665,47 @@ func (m *model) adjustSetting(delta int) {
 		m.config.QuietHoursStart = wrapHour(m.config.QuietHoursStart + delta)
 	case settingsQuietEnd:
 		m.config.QuietHoursEnd = wrapHour(m.config.QuietHoursEnd + delta)
+	case settingsSynthVolume:
+		m.config.SynthVolume += float64(delta) * 0.05
+		if m.config.SynthVolume < 0.0 {
+			m.config.SynthVolume = 0.0
+		} else if m.config.SynthVolume > 1.0 {
+			m.config.SynthVolume = 1.0
+		}
+		setNativeVolume(m.config.SynthVolume)
+	case settingsBinauralPreset:
+		m.config.BinauralPreset = nextValue(binauralPresetsOrder, m.config.BinauralPreset, delta)
+		updateActiveBinauralFrequencies(m.config)
+	case settingsBinauralCarrier:
+		m.config.BinauralCarrier += float64(delta) * 5.0
+		if m.config.BinauralCarrier < 20.0 {
+			m.config.BinauralCarrier = 20.0
+		} else if m.config.BinauralCarrier > 20000.0 {
+			m.config.BinauralCarrier = 20000.0
+		}
+		updateActiveBinauralFrequencies(m.config)
+	case settingsBinauralBeat:
+		m.config.BinauralBeat += float64(delta) * 0.5
+		if m.config.BinauralBeat < 0.1 {
+			m.config.BinauralBeat = 0.1
+		} else if m.config.BinauralBeat > 100.0 {
+			m.config.BinauralBeat = 100.0
+		}
+		updateActiveBinauralFrequencies(m.config)
+	case settingsFadeIn:
+		m.config.FadeInDuration += delta * 100
+		if m.config.FadeInDuration < 0 {
+			m.config.FadeInDuration = 0
+		} else if m.config.FadeInDuration > 10000 {
+			m.config.FadeInDuration = 10000
+		}
+	case settingsFadeOut:
+		m.config.FadeOutDuration += delta * 100
+		if m.config.FadeOutDuration < 0 {
+			m.config.FadeOutDuration = 0
+		} else if m.config.FadeOutDuration > 10000 {
+			m.config.FadeOutDuration = 10000
+		}
 	}
 	if err := saveConfigFile(m.configFile, m.config); err != nil {
 		m.setAppError(err, "Failed to save config")
@@ -3298,6 +3412,14 @@ func renderSettingsView(m model) string {
 			renderSettingLine(m.settingsCursor == settingsQuietStart, "Quiet start", hourLabel(m.config.QuietHoursStart)),
 			renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd)),
 		}),
+		renderSettingsSection(m.config, "Synthesizer & Audio", []string{
+			renderSettingLine(m.settingsCursor == settingsSynthVolume, "Synth volume", renderVolumeBar(m.config.SynthVolume)),
+			renderSettingLine(m.settingsCursor == settingsBinauralPreset, "Binaural preset", binauralPresetLabel(m.config.BinauralPreset)),
+			renderSettingLine(m.settingsCursor == settingsBinauralCarrier, "Binaural carrier", customOrPresetCarrier(m)),
+			renderSettingLine(m.settingsCursor == settingsBinauralBeat, "Binaural detune", customOrPresetBeat(m)),
+			renderSettingLine(m.settingsCursor == settingsFadeIn, "Audio fade-in speed", fmt.Sprintf("%d ms", m.config.FadeInDuration)),
+			renderSettingLine(m.settingsCursor == settingsFadeOut, "Audio fade-out speed", fmt.Sprintf("%d ms", m.config.FadeOutDuration)),
+		}),
 		renderSettingsSection(m.config, "Backup/Tools", []string{
 			renderSettingLine(m.settingsCursor == settingsBackup, "Create backup", "Write snapshot to backup.json"),
 			renderSettingLine(m.settingsCursor == settingsRestore, "Restore backup", "Load snapshot from backup.json"),
@@ -3450,6 +3572,24 @@ func renderSettingsHintRow(m model) string {
 		return "Quiet hours: Left/Right adjusts the hour."
 	case settingsNotifications, settingsDesktop, settingsWorkComplete, settingsBreakComplete, settingsSessionStart, settingsSessionEnd, settingsPauseResume, settingsEndingSoon:
 		return "Toggles: Space, Enter, or Left/Right flips the setting."
+	case settingsSynthVolume:
+		return "Synth Volume: Left/Right adjusts. Space cycles in 10% steps."
+	case settingsBinauralPreset:
+		return "Binaural Preset: Left/Right or Space cycles brainwave presets."
+	case settingsBinauralCarrier:
+		if strings.ToLower(m.config.BinauralPreset) != "custom" {
+			return "Binaural Carrier: Locked to preset. Choose 'Custom' preset to edit."
+		}
+		return "Binaural Carrier: Left/Right adjusts carrier frequency by 5 Hz."
+	case settingsBinauralBeat:
+		if strings.ToLower(m.config.BinauralPreset) != "custom" {
+			return "Binaural Beat: Locked to preset. Choose 'Custom' preset to edit."
+		}
+		return "Binaural Beat: Left/Right adjusts detuning gap by 0.5 Hz."
+	case settingsFadeIn:
+		return "Fade-in duration: Left/Right or Space adjusts the speed (ms)."
+	case settingsFadeOut:
+		return "Fade-out duration: Left/Right or Space adjusts the speed (ms)."
 	case settingsBackup:
 		return "Backup: Enter writes a project snapshot to backup.json."
 	case settingsRestore:
@@ -3481,6 +3621,68 @@ func hourLabel(hour int) string {
 		return "off"
 	}
 	return fmt.Sprintf("%02d:00", hour)
+}
+
+func renderVolumeBar(vol float64) string {
+	pct := int(vol * 100)
+	filled := int(vol * 10)
+	bar := ""
+	for i := 0; i < 10; i++ {
+		if i < filled {
+			bar += "█"
+		} else {
+			bar += "░"
+		}
+	}
+	return fmt.Sprintf("[%s] %d%%", bar, pct)
+}
+
+func binauralPresetLabel(preset string) string {
+	switch strings.ToLower(preset) {
+	case "alpha":
+		return "Alpha (Relaxed Focus, 10Hz)"
+	case "beta":
+		return "Beta (Logical Work, 20Hz)"
+	case "theta":
+		return "Theta (Deep Insight, 6Hz)"
+	case "delta":
+		return "Delta (Deep Restore, 3Hz)"
+	case "custom":
+		return "Custom (Tune below)"
+	default:
+		return "Alpha (Relaxed Focus, 10Hz)"
+	}
+}
+
+func customOrPresetCarrier(m model) string {
+	if strings.ToLower(m.config.BinauralPreset) != "custom" {
+		c, _ := getPresetFrequencies(m.config.BinauralPreset)
+		return fmt.Sprintf("%.1f Hz (Locked)", c)
+	}
+	return fmt.Sprintf("%.1f Hz", m.config.BinauralCarrier)
+}
+
+func customOrPresetBeat(m model) string {
+	if strings.ToLower(m.config.BinauralPreset) != "custom" {
+		_, b := getPresetFrequencies(m.config.BinauralPreset)
+		return fmt.Sprintf("%.1f Hz (Locked)", b)
+	}
+	return fmt.Sprintf("%.1f Hz", m.config.BinauralBeat)
+}
+
+func getPresetFrequencies(preset string) (float64, float64) {
+	switch strings.ToLower(preset) {
+	case "alpha":
+		return 120.0, 10.0
+	case "beta":
+		return 150.0, 20.0
+	case "theta":
+		return 100.0, 6.0
+	case "delta":
+		return 70.0, 3.0
+	default:
+		return 120.0, 10.0
+	}
 }
 
 func renderHelpView(m model) string {

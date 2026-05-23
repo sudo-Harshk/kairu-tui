@@ -22,6 +22,12 @@ YAML (kairu.yaml):
 - sessions_before_break (int) — default 4
 - soundscapes_dir (string) — directory to scan for audio files (default: `soundscapes/`)
 - soundscape_player (string) — command used to play audio (default: `mpv --loop --no-video`)
+- synth_volume (float) — master base volume level (0.0 to 1.0, default 0.5)
+- binaural_preset (string) — brainwave focus target (`alpha`, `beta`, `theta`, `delta`, `custom`, default `alpha`)
+- binaural_carrier (float) — custom center frequency in Hz (default 120.0)
+- binaural_beat (float) — custom left/right detuning gap in Hz (default 10.0)
+- fade_in_duration (int) — dynamic fade-in transition duration in ms (default 500)
+- fade_out_duration (int) — dynamic fade-out transition duration in ms (default 200)
 
 Env (.env):
 - KAIRU_TELEGRAM_BOT_TOKEN — token from @BotFather

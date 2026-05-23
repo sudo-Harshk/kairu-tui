@@ -111,10 +111,22 @@ Kairu includes a built-in Soundscape selector to help you maintain focus during 
   * `[Synth] White Noise`
   * `[Synth] Pink Noise` (1/f distribution for gentle focus)
   * `[Synth] Brown Noise` (1/f² distribution for deep isolation)
-  * `[Synth] Focus Binaural Beats` (Detuned carrier waves to induce alpha brainwave beats)
+  * `[Synth] Focus Binaural Beats` (Detuned carrier waves with adjustable presets to induce specific brainwave states)
 * **Custom Audio Tracks (External Player):** To play your own files, place `.mp3`, `.wav`, `.ogg`, `.flac`, or `.m4a` files in the `soundscapes_dir` (default: `soundscapes/`). This requires an external player like `mpv` configured in `kairu.yaml`.
 
-*Kairu automatically performs smooth volume ducking (fading) on native soundscapes when you pause/resume the timer.*
+*Kairu automatically performs smooth, organic cubic smoothstep volume fading on native soundscapes when you pause/resume the timer, which can be tuned in the Settings menu.*
+
+### Ambient & Synth Tuning
+Press **S** to open settings and configure your focus environment:
+- **Synth volume:** Adjust the master base level (0% to 100%).
+- **Binaural preset:** Select a target neural frequency:
+  - **Alpha (10Hz):** Relaxed focus & learning (120Hz carrier)
+  - **Beta (20Hz):** Active thinking & coding (150Hz carrier)
+  - **Theta (6Hz):** Deep focus & creative flow (100Hz carrier)
+  - **Delta (3Hz):** Deep relaxation & rest (70Hz carrier)
+  - **Custom:** Manually adjust carrier frequency and beat detuning gap in real time.
+- **Fade speeds:** Configure fade-in and fade-out durations in milliseconds for smooth, pop-free audio transitions.
+
 
 ### Streak Recovery
 Kairu features a unique **Recovery Mode**. If you miss exactly one day of work, the app enters recovery state. Completing a single session before midnight will "recover" your streak, preventing the demotivation of a reset.

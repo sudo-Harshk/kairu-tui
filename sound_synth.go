@@ -135,10 +135,12 @@ type BinauralBeatStreamer struct {
 func (b *BinauralBeatStreamer) Stream(samples [][2]float64) (int, bool) {
 	audioMutex.Lock()
 	vol := b.baseVolume * synthVolume
+	freqL := b.freqL
+	freqR := b.freqR
 	audioMutex.Unlock()
 
-	stepL := 2.0 * math.Pi * b.freqL / b.sampleRate
-	stepR := 2.0 * math.Pi * b.freqR / b.sampleRate
+	stepL := 2.0 * math.Pi * freqL / b.sampleRate
+	stepR := 2.0 * math.Pi * freqR / b.sampleRate
 	for i := range samples {
 		valL := math.Sin(b.phaseL) * vol
 		valR := math.Sin(b.phaseR) * vol
@@ -168,8 +170,47 @@ func IsSyntheticTrack(track string) bool {
 	return strings.HasPrefix(track, "[Synth]")
 }
 
+func getBinauralFrequencies(preset string, customCarrier, customBeat float64) (float64, float64) {
+	var carrier, beat float64
+	switch strings.ToLower(preset) {
+	case "alpha":
+		carrier, beat = 120.0, 10.0
+	case "beta":
+		carrier, beat = 150.0, 20.0
+	case "theta":
+		carrier, beat = 100.0, 6.0
+	case "delta":
+		carrier, beat = 70.0, 3.0
+	case "custom":
+		carrier, beat = customCarrier, customBeat
+		if carrier <= 0 {
+			carrier = 120.0
+		}
+		if beat <= 0 {
+			beat = 10.0
+		}
+	default:
+		carrier, beat = 120.0, 10.0
+	}
+	return carrier - beat/2.0, carrier + beat/2.0
+}
+
+func updateActiveBinauralFrequencies(cfg Config) {
+	audioMutex.Lock()
+	defer audioMutex.Unlock()
+
+	if activeCtrl == nil {
+		return
+	}
+	if streamer, ok := activeCtrl.Streamer.(*BinauralBeatStreamer); ok {
+		freqL, freqR := getBinauralFrequencies(cfg.BinauralPreset, cfg.BinauralCarrier, cfg.BinauralBeat)
+		streamer.freqL = freqL
+		streamer.freqR = freqR
+	}
+}
+
 // startNativeSynth starts playing the selected synthetic soundscape.
-func startNativeSynth(trackName string) error {
+func startNativeSynth(trackName string, cfg Config) error {
 	if err := initSpeaker(); err != nil {
 		return err
 	}
@@ -192,9 +233,10 @@ func startNativeSynth(trackName string) error {
 	case "[Synth] Brown Noise":
 		streamer = &BrownNoiseStreamer{baseVolume: 0.30}
 	case "[Synth] Focus Binaural Beats":
+		freqL, freqR := getBinauralFrequencies(cfg.BinauralPreset, cfg.BinauralCarrier, cfg.BinauralBeat)
 		streamer = &BinauralBeatStreamer{
-			freqL:      115.0, // Carrier freq: 120Hz, beat: 10Hz (Alpha wave)
-			freqR:      125.0,
+			freqL:      freqL,
+			freqR:      freqR,
 			sampleRate: 44100.0,
 			baseVolume: 0.25,
 		}
@@ -202,7 +244,7 @@ func startNativeSynth(trackName string) error {
 		return nil
 	}
 
-	synthVolume = 0.5 // Reset volume to default base level
+	synthVolume = 0.0 // Start at silence to allow smooth fade-in
 	ctrl := &beep.Ctrl{Streamer: streamer, Paused: false}
 	activeCtrl = ctrl
 	activeTrack = trackName
@@ -279,13 +321,15 @@ func fadeNativeVolume(target float64, duration time.Duration) {
 		audioMutex.Unlock()
 
 		diff := target - startVol
-		stepVal := diff / float64(steps)
 
 		for i := 0; i < steps; i++ {
 			select {
 			case <-volumeFadeTicker.C:
 				audioMutex.Lock()
-				synthVolume += stepVal
+				// Use cubic smoothstep interpolation: t * t * (3 - 2 * t)
+				t := float64(i+1) / float64(steps)
+				v := t * t * (3.0 - 2.0 * t)
+				synthVolume = startVol + diff * v
 				if synthVolume < 0.0 {
 					synthVolume = 0.0
 				} else if synthVolume > 1.0 {
