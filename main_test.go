@@ -1040,3 +1040,46 @@ func TestDeliverNotificationConcurrent(t *testing.T) {
 		}
 	})
 }
+
+func TestVisualAnalyticsRendering(t *testing.T) {
+	t.Parallel()
+
+	theme := themeStyle{
+		primary: "2",
+		accent:  "10",
+		notice:  "3",
+		warning: "1",
+	}
+
+	t.Run("ProgressBar", func(t *testing.T) {
+		got := renderHorizontalProgressBar(50.0, 10, theme, false)
+		if !strings.Contains(got, "█████") || !strings.Contains(got, "░░░░░") {
+			t.Fatalf("unexpected progress bar: %q", got)
+		}
+	})
+
+	t.Run("DashboardCard", func(t *testing.T) {
+		got := renderDashboardCard("Card Title", "Card Content", theme, 30)
+		if !strings.Contains(got, "Card Title") || !strings.Contains(got, "Card Content") {
+			t.Fatalf("expected card title and content: %q", got)
+		}
+	})
+
+	t.Run("TopDurationBars", func(t *testing.T) {
+		totals := map[string]int{
+			"coding":  3600,
+			"writing": 1800,
+		}
+		got := renderTopDurationBars(totals, 5400, 2, theme, true, 10)
+		if len(got) != 2 {
+			t.Fatalf("expected 2 lines, got %d", len(got))
+		}
+		if !strings.Contains(got[0], "coding") || !strings.Contains(got[0], "(66.7%)") {
+			t.Fatalf("unexpected top bar: %q", got[0])
+		}
+		if !strings.Contains(got[1], "writing") || !strings.Contains(got[1], "(33.3%)") {
+			t.Fatalf("unexpected second bar: %q", got[1])
+		}
+	})
+}
+

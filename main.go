@@ -2982,8 +2982,100 @@ Streak History (14 days):
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
+func renderHorizontalProgressBar(percent float64, totalWidth int, theme themeStyle, useAccent bool) string {
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+
+	filledLength := int(math.Round(percent * float64(totalWidth) / 100.0))
+	if filledLength < 0 {
+		filledLength = 0
+	}
+	if filledLength > totalWidth {
+		filledLength = totalWidth
+	}
+	emptyLength := totalWidth - filledLength
+
+	filledChar := "█"
+	emptyChar := "░"
+
+	color := theme.primary
+	if useAccent {
+		color = theme.accent
+	}
+
+	filledStr := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(strings.Repeat(filledChar, filledLength))
+	emptyStr := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.notice)).Render(strings.Repeat(emptyChar, emptyLength))
+
+	return filledStr + emptyStr
+}
+
+func renderDashboardCard(title string, content string, theme themeStyle, width int) string {
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(theme.primary)).
+		Padding(0, 1).
+		Width(width)
+
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.accent)).
+		Bold(true)
+
+	divider := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.primary)).
+		Render(strings.Repeat("─", width-2))
+
+	cardContent := titleStyle.Render(title) + "\n" + divider + "\n" + content
+	return borderStyle.Render(cardContent)
+}
+
+func renderTopDurationBars(totals map[string]int, totalSeconds int, limit int, theme themeStyle, useAccent bool, barWidth int) []string {
+	if len(totals) == 0 {
+		return nil
+	}
+	type item struct {
+		name    string
+		seconds int
+	}
+	items := make([]item, 0, len(totals))
+	for name, seconds := range totals {
+		items = append(items, item{name: name, seconds: seconds})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].seconds == items[j].seconds {
+			return items[i].name < items[j].name
+		}
+		return items[i].seconds > items[j].seconds
+	})
+	if len(items) < limit {
+		limit = len(items)
+	}
+
+	lines := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		pct := 0.0
+		if totalSeconds > 0 {
+			pct = float64(items[i].seconds) * 100.0 / float64(totalSeconds)
+		}
+
+		progressBar := renderHorizontalProgressBar(pct, barWidth, theme, useAccent)
+		durStr := formatDuration(items[i].seconds)
+
+		name := items[i].name
+		if len(name) > 12 {
+			name = name[:9] + "..."
+		}
+
+		lines = append(lines, fmt.Sprintf("  %-12s %s %7s (%.1f%%)", name, progressBar, durStr, pct))
+	}
+	return lines
+}
+
 func renderAnalyticsView(m model) string {
-	taskLines, tagLines, summary := buildAnalyticsSummary(m.entries)
+	taskTotals, tagTotals, summary := buildAnalyticsSummary(m.entries)
 	tabs := renderStatsTabs("analytics", m.config)
 	footer := "[Tab] Cycle Views   [S] Settings   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
@@ -2991,31 +3083,68 @@ func renderAnalyticsView(m model) string {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
 	}
 
+	theme := activeTheme(m.config)
+
+	// Responsive Card Width
+	cardWidth := 60
+	if m.width > 0 && m.width < 70 {
+		cardWidth = m.width - 6
+	}
+	if cardWidth < 30 {
+		cardWidth = 30
+	}
+
+	// Bar width inside card: cardWidth - padding(4) - name(14) - duration(16)
+	barWidth := cardWidth - 34
+	if barWidth < 6 {
+		barWidth = 6
+	}
+
+	// 1. PRODUCTIVITY SUMMARY CARD
+	var summaryBuilder strings.Builder
+	summaryBuilder.WriteString(fmt.Sprintf("  Sessions analyzed: %d\n", summary.totalSessions))
+	summaryBuilder.WriteString(fmt.Sprintf("  Work time:         %s\n", formatDuration(summary.workSeconds)))
+	summaryBuilder.WriteString(fmt.Sprintf("  Break time:        %s\n", formatDuration(summary.breakSeconds)))
+	summaryBuilder.WriteString(fmt.Sprintf("  Average session:   %s\n", formatDuration(summary.averageSeconds)))
+	summaryBuilder.WriteString(fmt.Sprintf("  Longest session:   %s\n", formatDuration(summary.longestSeconds)))
+	summaryBuilder.WriteString(fmt.Sprintf("  Busiest day:       %s", summary.busiestDay))
+	summaryCard := renderDashboardCard("PRODUCTIVITY SUMMARY", summaryBuilder.String(), theme, cardWidth)
+
+	// 2. TOP TASKS CARD
+	taskLines := renderTopDurationBars(taskTotals, summary.workSeconds, 5, theme, true, barWidth)
+	var tasksContent string
 	if len(taskLines) == 0 {
-		taskLines = []string{"  No task breakdown yet."}
+		tasksContent = "  No task breakdown yet."
+	} else {
+		tasksContent = strings.Join(taskLines, "\n")
 	}
+	tasksCard := renderDashboardCard("Top tasks:", tasksContent, theme, cardWidth)
+
+	// 3. TOP TAGS CARD
+	totalTagSeconds := 0
+	for _, secs := range tagTotals {
+		totalTagSeconds += secs
+	}
+	tagLines := renderTopDurationBars(tagTotals, totalTagSeconds, 5, theme, false, barWidth)
+	var tagsContent string
 	if len(tagLines) == 0 {
-		tagLines = []string{"  No tag breakdown yet."}
+		tagsContent = "  No tag breakdown yet."
+	} else {
+		tagsContent = strings.Join(tagLines, "\n")
 	}
+	tagsCard := renderDashboardCard("Top tags:", tagsContent, theme, cardWidth)
 
 	block := fmt.Sprintf(`%s
 %s
 
-Sessions analyzed: %d
-Work time: %s
-Break time: %s
-Average session: %s
-Longest session: %s
-Busiest day: %s
-
-Top tasks:
-%s
-
-Top tags:
 %s
 
 %s
-`, renderBanner(m.config), tabs, summary.totalSessions, formatDuration(summary.workSeconds), formatDuration(summary.breakSeconds), formatDuration(summary.averageSeconds), formatDuration(summary.longestSeconds), summary.busiestDay, strings.Join(taskLines, "\n"), strings.Join(tagLines, "\n"), footer)
+
+%s
+
+%s
+`, renderBanner(m.config), tabs, summaryCard, tasksCard, tagsCard, footer)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
@@ -3145,7 +3274,7 @@ type analyticsSummary struct {
 	busiestDay     string
 }
 
-func buildAnalyticsSummary(entries []Entry) ([]string, []string, analyticsSummary) {
+func buildAnalyticsSummary(entries []Entry) (map[string]int, map[string]int, analyticsSummary) {
 	taskTotals := make(map[string]int)
 	tagTotals := make(map[string]int)
 	dayTotals := make(map[string]int)
@@ -3191,37 +3320,7 @@ func buildAnalyticsSummary(entries []Entry) ([]string, []string, analyticsSummar
 		}
 	}
 
-	taskLines := renderTopDurationLines(taskTotals, 5)
-	tagLines := renderTopDurationLines(tagTotals, 5)
-	return taskLines, tagLines, summary
-}
-
-func renderTopDurationLines(totals map[string]int, limit int) []string {
-	if len(totals) == 0 {
-		return nil
-	}
-	type item struct {
-		name    string
-		seconds int
-	}
-	items := make([]item, 0, len(totals))
-	for name, seconds := range totals {
-		items = append(items, item{name: name, seconds: seconds})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].seconds == items[j].seconds {
-			return items[i].name < items[j].name
-		}
-		return items[i].seconds > items[j].seconds
-	})
-	if len(items) < limit {
-		limit = len(items)
-	}
-	lines := make([]string, 0, limit)
-	for i := 0; i < limit; i++ {
-		lines = append(lines, fmt.Sprintf("  - %-18s %s", items[i].name, formatDuration(items[i].seconds)))
-	}
-	return lines
+	return taskTotals, tagTotals, summary
 }
 
 func renderHistoryView(m model) string {

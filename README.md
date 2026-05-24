@@ -136,6 +136,14 @@ Press **S** to open settings and configure your focus environment:
 ### Streak Recovery
 Kairu features a unique **Recovery Mode**. If you miss exactly one day of work, the app enters recovery state. Completing a single session before midnight will "recover" your streak, preventing the demotivation of a reset.
 
+### Visual Analytics Dashboard
+Kairu features a highly visual, theme-cohesive **Analytics** dashboard. Press `Tab` to cycle through the stats views from your active screen to open the dashboard cards:
+- **Productivity Summary:** Displays aggregated stats such as total sessions, work/break ratios, average/longest session lengths, and busiest days.
+- **Top Focus Tasks:** A horizontal unicode bar chart showing time allocation across your top 5 tasks, along with exact duration and percentage contribution.
+- **Top Tags & Categories:** An advanced category breakdown rendering horizontal visual progress bars based on session tags to track exactly where your time is being invested.
+- **Theme-Adaptive & Responsive:** Box borders and progress bars dynamically scale to fit your terminal width and automatically shift colors to match your current active visual theme (Forest, Cyberpunk, Matrix, etc.).
+
+
 ## Tech Stack
 
 | Component | Technology | Role |
