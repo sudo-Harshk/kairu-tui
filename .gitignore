@@ -1,21 +1,28 @@
-go.mod
-go.sum
+# Compiled binaries
+kairu
+kairu.exe
 kairu-tui
 kairu-tui.exe
+
+# Local data store and backups
 entries.json
 notification_outbox.json
+backup.json
+
+# Configuration and secrets
 kairu.yaml
 .env
 .env.*
+
+# IDEs and system files
 .vscode/
 .idea/
 *.swp
 *.swo
 .DS_Store
 Thumbs.db
-bugs/
-features/
-*txt
+
+# Build cache and coverage files
 .gocache/
 go-build/
 coverage.out
