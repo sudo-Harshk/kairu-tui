@@ -136,6 +136,18 @@ Press **S** to open settings and configure your focus environment:
 ### Streak Recovery
 Kairu features a unique **Recovery Mode**. If you miss exactly one day of work, the app enters recovery state. Completing a single session before midnight will "recover" your streak, preventing the demotivation of a reset.
 
+### Cyber-Tamagotchi Focus Pet (ASCII Companion)
+To combat developer fatigue and keep your deep-work sessions engaging, Kairu features a highly animated, theme-adaptive **Cyber-Tamagotchi Companion**—**Neko the Robo-Kitty**! If your terminal window is wide enough (`>= 90` columns), Neko sits side-by-side with your active forms and countdown timer clocks:
+
+*   **Real-Time Frame-by-Frame Animations**: Watch your companion blink while resting, intensely type on a mini console keyboard with flying electrical sparks during work blocks (`[💻]`, `[⌨️]`, `[⚡︎]`), and snooze peacefully with floating dream `Zzz`'s during breaks or late at night.
+*   **Progressive Leveling & Evolution**: Completing Pomodoro focus sessions feeds your companion. Earned XP triggers level-ups, evolving Neko across three distinct growth phases:
+    *   *Baby* (Level 1–3)
+    *   *Teen* (Level 4–7)
+    *   *Cyber-Ascended God* (Level 8–10)
+*   **Interactive Dialogue Bubbles**: Neko wiggles its bubble tail to speak dynamic, personality-rich dialogue that directly responds to active work, break, pause, or late-night states.
+*   **Rare Cosmetic Loot**: Successful work blocks yield a 15% random chance to discover rare accessories (*Wizard Hat*, *Cyber Visor*, *Golden Crown*, *Laser Goggles*, *Mini Cape*) which award bonus XP and are permanently displayed on Neko's visual ASCII avatar!
+*   **Sidebar Toggle**: Press **`Ctrl+G`** at any time to instantly hide or show your animated buddy.
+
 ### Visual Analytics Dashboard
 Kairu features a highly visual, theme-cohesive **Analytics** dashboard. Press `Tab` to cycle through the stats views from your active screen to open the dashboard cards:
 - **Productivity Summary:** Displays aggregated stats such as total sessions, work/break ratios, average/longest session lengths, and busiest days.

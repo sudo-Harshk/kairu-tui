@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -193,6 +194,13 @@ type model struct {
 	internalLogs        []string
 	guardianLocked      bool
 	abortConfirmation   bool
+	petState            PetState
+	petEnabled          bool
+	showPetSidebar      bool
+	petOnboardingStage  int
+	petOnboardingIndex  int
+	petNameInput        textinput.Model
+	showPetLevelUpOverlay bool
 }
 
 func loadSoundscapes(dir string) ([]string, error) {
@@ -814,6 +822,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		key := msg.String()
+
+		if m.showPetLevelUpOverlay {
+			m.showPetLevelUpOverlay = false
+			return m, nil
+		}
+
+		// Global toggle for pet sidebar
+		if key == "ctrl+g" && m.mode != "fatal" {
+			if m.petEnabled {
+				m.showPetSidebar = !m.showPetSidebar
+				return m, nil
+			}
+		}
+
 		if m.mode == "fatal" {
 			switch key {
 			case "ctrl+c", "q", "enter", "esc":
@@ -2320,6 +2342,37 @@ func (m *model) saveSession() tea.Cmd {
 		m.setAppError(err, "Failed to write entries")
 		return nil
 	}
+
+	if m.petEnabled {
+		leveledUp := false
+		if sessionType == "work" {
+			// Feed pet based on work duration (minutes)
+			leveledUp = m.petState.Feed(duration / 60)
+		} else {
+			// Award XP for break completion
+			leveledUp = m.petState.AddXP(20)
+		}
+
+		// Random chance (15%) to discover a cosmetic item if a work session completes
+		if sessionType == "work" && rand.Float64() < 0.15 && m.petState.ActiveItem == "" {
+			items := []string{"Wizard Hat", "Cyber Visor", "Golden Crown", "Laser Goggles", "Mini Cape"}
+			rand.Seed(time.Now().UnixNano())
+			discovered := items[rand.Intn(len(items))]
+			m.petState.ActiveItem = discovered
+			m.petState.AddXP(50) // Bonus XP for finding a rare item
+			m.logInternal("PET: %s found a rare item: %s!", m.petState.Name, discovered)
+		}
+
+		if err := SavePetState("pet.json", m.petState); err != nil {
+			m.setAppError(err, "Failed to save pet state")
+		}
+
+		if leveledUp {
+			m.logInternal("PET: Level Up! %s reached Level %d", m.petState.Name, m.petState.Level)
+			m.showPetLevelUpOverlay = true
+		}
+	}
+
 	m.logInternal("SESSION: Saved %s (%s)", m.taskName, formatDuration(duration))
 	m.entries = entries
 	fileTasks := loadTasksFromFile(m.config.TasksFile)
@@ -2680,7 +2733,35 @@ func renderNotificationStatus(m model) string {
 	return themedStyle(m.config, activeTheme(m.config).primary).Render(m.notificationStatus)
 }
 
+func renderPetLevelUpCard(pet PetState) string {
+	stage := pet.EvolutionStage()
+	stageName := "Baby"
+	if stage == 2 {
+		stageName = "Teenager"
+	} else if stage == 3 {
+		stageName = "Cyber-Ascended God!"
+	}
+
+	return fmt.Sprintf(`
+╭───────────────────────────────────────────────────╮
+│             🎉   LEVEL UP!  LEVEL UP!   🎉        │
+╰───────────────────────────────────────────────────╯
+
+        ★  %s HAS REACHED LEVEL %d! ★
+
+                 Evolution Stage: %s
+
+           "Quack! Gaining power! Thank you!"
+
+[ Press any key to continue... ]`,
+		strings.ToUpper(pet.Name), pet.Level, stageName)
+}
+
 func renderInputView(m model) string {
+	if m.showPetLevelUpOverlay {
+		return fmt.Sprintf("\n%s\n", centerBlock(m.width, renderPetLevelUpCard(m.petState)))
+	}
+
 	errorLine := ""
 	if m.inputError != "" {
 		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.inputError)
@@ -2717,7 +2798,12 @@ func renderInputView(m model) string {
 		recentOverlay = strings.Join(overlayLines, "\n")
 	}
 
-	return fmt.Sprintf(`
+	hintLine := "[Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [Ctrl+M] Soundscapes   [?] Help   [q] Quit"
+	if m.petEnabled {
+		hintLine += "   [Ctrl+G] Toggle Pet"
+	}
+
+	inputForm := fmt.Sprintf(`
 ╭─────────────────────────────────────╮
 │  📝  What are you working on?      │
 ╰─────────────────────────────────────╯
@@ -2736,10 +2822,28 @@ func renderInputView(m model) string {
 
 %s
 
-[Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [Ctrl+M] Soundscapes   [?] Help   [q] Quit
-Templates: Left/Right while Template is focused   Up/Down to browse suggested tasks
+%s
+Templates: Left/Right while Template is focused   Up/Down to browse suggested tasks`,
+		templateLine, recoveryMsg, recentOverlay, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), m.tagInput.View(), errorBlock, hintLine)
 
-`, templateLine, recoveryMsg, recentOverlay, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), m.tagInput.View(), errorBlock)
+	if m.petEnabled && m.showPetSidebar && m.width >= 90 {
+		m.petState.UpdateMood(m.running, m.mode, m.sessionStart)
+		petBox := RenderPetBox(m.petState, m.width)
+
+		formFrame := lipgloss.NewStyle().Padding(0, 1).Render(inputForm)
+
+		theme := activeTheme(m.config)
+		petFrame := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color(theme.primary)).
+			Padding(0, 1).
+			Render(petBox)
+
+		block := lipgloss.JoinHorizontal(lipgloss.Center, formFrame, petFrame)
+		return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+	}
+
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, inputForm))
 }
 
 func renderEditView(m model) string {
@@ -2793,14 +2897,18 @@ func renderTimerView(m model) string {
 	empty := barWidth - filled
 	progress := fmt.Sprintf("[%s%s] %.0f%%", strings.Repeat("█", filled), strings.Repeat("░", empty), remainingPct)
 
-	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help"
+	petHint := ""
+	if m.petEnabled {
+		petHint = "  [Ctrl+G] Pet"
+	}
+	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help" + petHint
 	if m.guardianLocked {
 		hint += "  [Esc] Abort"
 	} else {
 		hint += "  [q] Quit"
 	}
 	if !m.running {
-		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help"
+		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help" + petHint
 		if m.guardianLocked {
 			hint += "  [Esc] Abort"
 		} else {
@@ -2860,6 +2968,23 @@ func renderTimerView(m model) string {
 			Padding(0, 1).
 			Render(fmt.Sprintf("%s\n\n%s", ascii, progress))
 		block = fmt.Sprintf("%s\n\n%s\n\n%s", header, timerFrame, details)
+	}
+
+	if m.petEnabled && m.showPetSidebar && m.width >= 90 {
+		m.petState.UpdateMood(m.running, m.mode, m.sessionStart)
+		petBox := RenderPetBox(m.petState, m.width)
+
+		timerFrame := lipgloss.NewStyle().Padding(0, 1).Render(block)
+
+		theme := activeTheme(m.config)
+		petFrame := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color(theme.primary)).
+			Padding(0, 1).
+			Render(petBox)
+
+		joinedBlock := lipgloss.JoinHorizontal(lipgloss.Center, timerFrame, petFrame)
+		return fmt.Sprintf("\n%s\n", centerBlock(m.width, joinedBlock))
 	}
 
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
@@ -4204,6 +4329,17 @@ func main() {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		startupErrors = append(startupErrors, fmt.Sprintf("Failed to read entries: %v", err))
 	}
+
+	petFile := "pet.json"
+	pState, petErr := LoadPetState(petFile)
+	petEnabled := true
+	if petErr != nil {
+		pState = DefaultPet("Neko", "kitty")
+		if err := SavePetState(petFile, pState); err != nil {
+			startupErrors = append(startupErrors, fmt.Sprintf("Failed to initialize default pet: %v", err))
+		}
+	}
+
 	mode := "input"
 	if fatalConfig {
 		mode = "fatal"
@@ -4245,6 +4381,10 @@ func main() {
 		soundscapes:        soundscapes,
 		soundscapeIndex:    -1,
 		internalLogs:       []string{},
+		petState:            pState,
+		petEnabled:          petEnabled,
+		showPetSidebar:      true,
+		showPetLevelUpOverlay: false,
 	}
 	m.logInternal("SYSTEM: Kairu TUI started")
 	m = m.setInputFocus(initialFocus)

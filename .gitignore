@@ -6,6 +6,7 @@ kairu-tui.exe
 
 # Local data store and backups
 entries.json
+pet.json
 notification_outbox.json
 backup.json
 
