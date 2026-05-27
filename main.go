@@ -201,6 +201,15 @@ type model struct {
 	petOnboardingIndex  int
 	petNameInput        textinput.Model
 	showPetLevelUpOverlay bool
+
+	// Cyber-Tamagotchi TUI States
+	tamagotchiReturnMode   string
+	tamagotchiActiveMenu   string // "", "feed", "shop", "play"
+	tamagotchiMenuSelect   int
+	tamagotchiFeedback     string
+	tamagotchiFeedbackTime time.Time
+	typingGame             TypingGameState
+	binaryGame             BinaryGameState
 }
 
 func loadSoundscapes(dir string) ([]string, error) {
@@ -770,10 +779,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				model, cmd := m.completeSession()
 				return model, tea.Batch(notifyC, cmd)
 			}
-			if m.mode == "timer" || m.mode == "break" || m.mode == "settings" || m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" || m.mode == "help" || m.mode == "logs" || m.mode == "templates" || m.mode == "soundscapes" {
+			if m.mode == "timer" || m.mode == "break" || m.mode == "settings" || m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" || m.mode == "help" || m.mode == "logs" || m.mode == "templates" || m.mode == "soundscapes" || m.mode == "tamagotchi" {
 				return m, tickCmd()
 			}
 			return m, nil
+		}
+		if m.mode == "tamagotchi" {
+			m.petState.TickStateDecay(time.Now())
+			return m, tickCmd()
 		}
 		return m, nil
 
@@ -836,6 +849,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Global toggle for Tamagotchi Screen
+		if key == "ctrl+t" && m.mode != "fatal" {
+			if m.petEnabled {
+				if m.mode == "tamagotchi" {
+					m.mode = m.tamagotchiReturnMode
+					if m.mode == "" {
+						m.mode = "input"
+					}
+				} else {
+					m.tamagotchiReturnMode = m.mode
+					m.mode = "tamagotchi"
+					m.tamagotchiActiveMenu = ""
+					m.tamagotchiMenuSelect = 0
+					m.tamagotchiFeedback = ""
+					// Tick decay immediately on opening to keep state fresh!
+					m.petState.TickStateDecay(time.Now())
+					_ = SavePetState("pet.json", m.petState)
+				}
+				return m, tickCmd()
+			}
+		}
+
 		if m.mode == "fatal" {
 			switch key {
 			case "ctrl+c", "q", "enter", "esc":
@@ -849,6 +884,324 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.closeHelp(true)
 			}
 			m = m.openHelp()
+			return m, nil
+		}
+
+		if m.mode == "tamagotchi" {
+			// Clear temporary feedback message if enough time has passed
+			if !m.tamagotchiFeedbackTime.IsZero() && time.Since(m.tamagotchiFeedbackTime) > 3*time.Second {
+				m.tamagotchiFeedback = ""
+			}
+
+			// If active menu is rebirth (renaming pet)
+			if m.tamagotchiActiveMenu == "rebirth" {
+				switch key {
+				case "enter":
+					name := strings.TrimSpace(m.textInput.Value())
+					if name == "" {
+						name = "Neko"
+					}
+					m.tamagotchiFeedback = m.petState.RebirthPet(name)
+					m.tamagotchiFeedbackTime = time.Now()
+					m.tamagotchiActiveMenu = ""
+					m.tamagotchiMenuSelect = 0
+					_ = SavePetState("pet.json", m.petState)
+					return m, nil
+				case "esc":
+					m.tamagotchiActiveMenu = ""
+					m.tamagotchiMenuSelect = 0
+					return m, nil
+				default:
+					var cmd tea.Cmd
+					m.textInput, cmd = m.textInput.Update(msg)
+					return m, cmd
+				}
+			}
+
+			// If active game is typing challenge
+			if m.tamagotchiActiveMenu == "typing" {
+				if m.typingGame.Finished {
+					if key == "enter" {
+						m.tamagotchiActiveMenu = ""
+						m.tamagotchiMenuSelect = 0
+						m.tamagotchiFeedback = ""
+					}
+					return m, nil
+				}
+				
+				switch key {
+				case "esc":
+					m.tamagotchiActiveMenu = ""
+					m.tamagotchiMenuSelect = 0
+					m.tamagotchiFeedback = ""
+					return m, nil
+				case "backspace":
+					if len(m.typingGame.TypedText) > 0 {
+						m.typingGame.TypedText = m.typingGame.TypedText[:len(m.typingGame.TypedText)-1]
+					}
+					return m, nil
+				case "enter", "ctrl+m", "space", "tab":
+					// Allow entering space or characters
+					char := " "
+					if key == "enter" || key == "ctrl+m" {
+						char = "\n"
+					} else if key == "tab" {
+						char = "\t"
+					}
+					if len(m.typingGame.TypedText) < len(m.typingGame.TargetText) {
+						m.typingGame.TypedText += char
+					}
+				default:
+					if len(key) == 1 && len(m.typingGame.TypedText) < len(m.typingGame.TargetText) {
+						m.typingGame.TypedText += key
+					}
+				}
+
+				// Check typing game completion
+				if len(m.typingGame.TypedText) >= len(m.typingGame.TargetText) {
+					m.typingGame.Finished = true
+					// Calculate WPM and Accuracy
+					correctCount := 0
+					for i := 0; i < len(m.typingGame.TargetText); i++ {
+						if i < len(m.typingGame.TypedText) && m.typingGame.TargetText[i] == m.typingGame.TypedText[i] {
+							correctCount++
+						}
+					}
+					m.typingGame.Accuracy = (float64(correctCount) / float64(len(m.typingGame.TargetText))) * 100.0
+					duration := time.Since(m.typingGame.StartTime).Minutes()
+					if duration <= 0 {
+						duration = 0.01
+					}
+					words := float64(len(m.typingGame.TargetText)) / 5.0
+					m.typingGame.WPM = int(words / duration)
+					if m.typingGame.WPM > 200 {
+						m.typingGame.WPM = 200 // Cap typing WPM
+					}
+
+					// Rewards
+					coinsReward := 5
+					if m.typingGame.Accuracy >= 90.0 {
+						coinsReward = 10
+						if m.typingGame.WPM > 60 {
+							coinsReward = 15 // Bonus hacker reward
+						}
+					}
+					m.typingGame.CoinsWon = coinsReward
+					m.petState.Coins += coinsReward
+					m.petState.Happiness += 25
+					if m.petState.Happiness > 100 {
+						m.petState.Happiness = 100
+					}
+					_ = SavePetState("pet.json", m.petState)
+				}
+				return m, nil
+			}
+
+			// If active game is binary guessing game
+			if m.tamagotchiActiveMenu == "guessing" {
+				if m.binaryGame.Finished {
+					if key == "enter" {
+						m.tamagotchiActiveMenu = ""
+						m.tamagotchiMenuSelect = 0
+						m.tamagotchiFeedback = ""
+					}
+					return m, nil
+				}
+
+				switch key {
+				case "esc":
+					m.tamagotchiActiveMenu = ""
+					m.tamagotchiMenuSelect = 0
+					m.tamagotchiFeedback = ""
+					return m, nil
+				case "backspace":
+					if len(m.binaryGame.InputStr) > 0 {
+						m.binaryGame.InputStr = m.binaryGame.InputStr[:len(m.binaryGame.InputStr)-1]
+					}
+					return m, nil
+				case "enter":
+					// Submit guess
+					var guess int
+					_, err := fmt.Sscanf(m.binaryGame.InputStr, "%d", &guess)
+					if err != nil {
+						m.binaryGame.LastHint = "Invalid decimal number! Enter digits only."
+						m.binaryGame.InputStr = ""
+						return m, nil
+					}
+
+					m.binaryGame.Attempts++
+					if guess == m.binaryGame.TargetNum {
+						m.binaryGame.Won = true
+						m.binaryGame.Finished = true
+						m.petState.Coins += 5
+						m.petState.Happiness += 15
+						if m.petState.Happiness > 100 {
+							m.petState.Happiness = 100
+						}
+						_ = SavePetState("pet.json", m.petState)
+					} else if m.binaryGame.Attempts >= 4 {
+						m.binaryGame.Finished = true
+					} else if guess < m.binaryGame.TargetNum {
+						m.binaryGame.LastHint = "Higher!"
+						m.binaryGame.InputStr = ""
+					} else {
+						m.binaryGame.LastHint = "Lower!"
+						m.binaryGame.InputStr = ""
+					}
+					return m, nil
+				default:
+					if len(key) == 1 && key >= "0" && key <= "9" && len(m.binaryGame.InputStr) < 3 {
+						m.binaryGame.InputStr += key
+					}
+				}
+				return m, nil
+			}
+
+			// Main sub-menus keyboard handling
+			switch m.tamagotchiActiveMenu {
+			case "feed":
+				switch key {
+				case "up", "k":
+					m.tamagotchiMenuSelect = (m.tamagotchiMenuSelect - 1 + 3) % 3
+					return m, nil
+				case "down", "j":
+					m.tamagotchiMenuSelect = (m.tamagotchiMenuSelect + 1) % 3
+					return m, nil
+				case "enter":
+					items := []string{"fish", "treat", "drink"}
+					item := items[m.tamagotchiMenuSelect]
+					var leveledUp bool
+					m.tamagotchiFeedback, leveledUp = m.petState.FeedItem(item)
+					m.tamagotchiFeedbackTime = time.Now()
+					if leveledUp {
+						m.showPetLevelUpOverlay = true
+					}
+					_ = SavePetState("pet.json", m.petState)
+					return m, nil
+				case "esc":
+					m.tamagotchiActiveMenu = ""
+					m.tamagotchiMenuSelect = 0
+					m.tamagotchiFeedback = ""
+					return m, nil
+				}
+
+			case "shop":
+				switch key {
+				case "up", "k":
+					m.tamagotchiMenuSelect = (m.tamagotchiMenuSelect - 1 + 4) % 4
+					return m, nil
+				case "down", "j":
+					m.tamagotchiMenuSelect = (m.tamagotchiMenuSelect + 1) % 4
+					return m, nil
+				case "enter":
+					items := []string{"fish", "treat", "drink", "medicine"}
+					costs := []int{5, 10, 8, 15}
+					item := items[m.tamagotchiMenuSelect]
+					cost := costs[m.tamagotchiMenuSelect]
+					m.tamagotchiFeedback = m.petState.BuyItem(item, cost)
+					m.tamagotchiFeedbackTime = time.Now()
+					_ = SavePetState("pet.json", m.petState)
+					return m, nil
+				case "esc":
+					m.tamagotchiActiveMenu = ""
+					m.tamagotchiMenuSelect = 0
+					m.tamagotchiFeedback = ""
+					return m, nil
+				}
+
+			case "play":
+				switch key {
+				case "up", "k":
+					m.tamagotchiMenuSelect = (m.tamagotchiMenuSelect - 1 + 2) % 2
+					return m, nil
+				case "down", "j":
+					m.tamagotchiMenuSelect = (m.tamagotchiMenuSelect + 1) % 2
+					return m, nil
+				case "enter":
+					if m.tamagotchiMenuSelect == 0 {
+						m.tamagotchiActiveMenu = "typing"
+						m.typingGame = InitTypingGame()
+					} else {
+						m.tamagotchiActiveMenu = "guessing"
+						m.binaryGame = InitBinaryGame()
+					}
+					return m, nil
+				case "esc":
+					m.tamagotchiActiveMenu = ""
+					m.tamagotchiMenuSelect = 0
+					m.tamagotchiFeedback = ""
+					return m, nil
+				}
+
+			default:
+				// Grid navigation for main actions (8 choices in 4x2 layout)
+				// options: [0] FEED, [1] PLAY, [2] CLEAN, [3] HEAL, [4] SLEEP, [5] SHOP, [6] REBIRTH, [7] EXIT
+				switch key {
+				case "up", "k":
+					m.tamagotchiMenuSelect -= 2
+					if m.tamagotchiMenuSelect < 0 {
+						m.tamagotchiMenuSelect += 8
+					}
+					return m, nil
+				case "down", "j":
+					m.tamagotchiMenuSelect = (m.tamagotchiMenuSelect + 2) % 8
+					return m, nil
+				case "left", "h":
+					if m.tamagotchiMenuSelect%2 == 1 {
+						m.tamagotchiMenuSelect--
+					} else {
+						m.tamagotchiMenuSelect++
+					}
+					return m, nil
+				case "right", "l":
+					if m.tamagotchiMenuSelect%2 == 0 {
+						m.tamagotchiMenuSelect++
+					} else {
+						m.tamagotchiMenuSelect--
+					}
+					return m, nil
+				case "esc", "q":
+					m.mode = m.tamagotchiReturnMode
+					if m.mode == "" {
+						m.mode = "input"
+					}
+					return m, nil
+				case "enter":
+					switch m.tamagotchiMenuSelect {
+					case 0: // FEED
+						m.tamagotchiActiveMenu = "feed"
+						m.tamagotchiMenuSelect = 0
+					case 1: // PLAY
+						m.tamagotchiActiveMenu = "play"
+						m.tamagotchiMenuSelect = 0
+					case 2: // CLEAN
+						m.tamagotchiFeedback = m.petState.CleanPoop()
+						m.tamagotchiFeedbackTime = time.Now()
+						_ = SavePetState("pet.json", m.petState)
+					case 3: // HEAL
+						m.tamagotchiFeedback = m.petState.HealSick()
+						m.tamagotchiFeedbackTime = time.Now()
+						_ = SavePetState("pet.json", m.petState)
+					case 4: // SLEEP
+						m.tamagotchiFeedback = m.petState.ToggleSleep()
+						m.tamagotchiFeedbackTime = time.Now()
+						_ = SavePetState("pet.json", m.petState)
+					case 5: // SHOP
+						m.tamagotchiActiveMenu = "shop"
+						m.tamagotchiMenuSelect = 0
+					case 6: // REBIRTH
+						m.tamagotchiActiveMenu = "rebirth"
+						m.textInput.SetValue("")
+						m.textInput.Focus()
+					case 7: // EXIT
+						m.mode = m.tamagotchiReturnMode
+						if m.mode == "" {
+							m.mode = "input"
+						}
+					}
+					return m, nil
+				}
+			}
 			return m, nil
 		}
 
@@ -2345,12 +2698,22 @@ func (m *model) saveSession() tea.Cmd {
 
 	if m.petEnabled {
 		leveledUp := false
+		coinsGained := 0
 		if sessionType == "work" {
 			// Feed pet based on work duration (minutes)
 			leveledUp = m.petState.Feed(duration / 60)
+			coinsGained = duration / 60
+			if coinsGained < 5 {
+				coinsGained = 5 // Minimum reward
+			}
+			m.petState.Coins += coinsGained
+			m.logInternal("PET: Work block complete. Gained XP and earned %d Pomo-Coins! (Total: %d)", coinsGained, m.petState.Coins)
 		} else {
 			// Award XP for break completion
 			leveledUp = m.petState.AddXP(20)
+			coinsGained = 5
+			m.petState.Coins += coinsGained
+			m.logInternal("PET: Break complete. Gained 20 XP and earned 5 Pomo-Coins! (Total: %d)", m.petState.Coins)
 		}
 
 		// Random chance (15%) to discover a cosmetic item if a work session completes
@@ -2704,9 +3067,43 @@ func (m model) View() string {
 		return renderHelpView(m)
 	case "fatal":
 		return renderFatalView(m)
+	case "tamagotchi":
+		return renderTamagotchiView(m)
 	default:
 		return renderInputView(m)
 	}
+}
+
+func renderTamagotchiView(m model) string {
+	theme := activeTheme(m.config)
+
+	var screenContent string
+	if m.tamagotchiActiveMenu == "typing" {
+		screenContent = RenderTypingGame(m.typingGame, m.width, theme.accent, theme.primary)
+	} else if m.tamagotchiActiveMenu == "guessing" {
+		screenContent = RenderBinaryGame(m.binaryGame, m.width, theme.accent, theme.primary)
+	} else if m.tamagotchiActiveMenu == "rebirth" {
+		subtle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+		
+		var rows []string
+		rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.primary)).Bold(true).Render("   🧬  R E B I R T H   S A N C T U A R Y"))
+		rows = append(rows, subtle.Render("   "+strings.Repeat("─", 52)))
+		rows = append(rows, "   Your companion has reached the end of their digital cycle.")
+		rows = append(rows, "   Please enter a new name for your companion:")
+		rows = append(rows, "")
+		rows = append(rows, "   > "+m.textInput.View())
+		rows = append(rows, "")
+		rows = append(rows, subtle.Render("   Press [Enter] to rebirth or [Esc] to cancel"))
+		
+		for len(rows) < 8 {
+			rows = append(rows, "")
+		}
+		// Pass the prompt as feedbackMsg so that RenderTamagotchiScreen will output it directly in the LCD screen
+		screenContent = RenderTamagotchiScreen(m.petState, m.width, m.tamagotchiActiveMenu, m.tamagotchiMenuSelect, strings.Join(rows, "\n"), theme.accent, theme.primary)
+	} else {
+		screenContent = RenderTamagotchiScreen(m.petState, m.width, m.tamagotchiActiveMenu, m.tamagotchiMenuSelect, m.tamagotchiFeedback, theme.accent, theme.primary)
+	}
+	return fmt.Sprintf("\n%s\n", screenContent)
 }
 
 func joinNonEmptyLines(lines ...string) string {
@@ -4338,6 +4735,15 @@ func main() {
 		if err := SavePetState(petFile, pState); err != nil {
 			startupErrors = append(startupErrors, fmt.Sprintf("Failed to initialize default pet: %v", err))
 		}
+	} else {
+		// Catch up on offline state decay
+		pState.TickStateDecay(time.Now())
+		if pState.IsDead {
+			startupErrors = append(startupErrors, "COMPANION DIED OF NEGLECT! 🪦 Enter Tamagotchi screen (Ctrl+T) to rebirth Neko.")
+		}
+		if err := SavePetState(petFile, pState); err != nil {
+			startupErrors = append(startupErrors, fmt.Sprintf("Failed to save caught-up pet state: %v", err))
+		}
 	}
 
 	mode := "input"
@@ -4360,31 +4766,34 @@ func main() {
 	fileTasks := loadTasksFromFile(cfg.TasksFile)
 
 	m := model{
-		mode:               mode,
-		textInput:          ti,
-		durationInput:      di,
-		noteInput:          ni,
-		tagInput:           gi,
-		focusedField:       initialFocus,
-		entries:            entryList,
-		templates:          templates,
-		taskSuggestions:    buildTaskSuggestions(entryList, cfg.PinnedTasks, fileTasks),
-		suggestionIndex:    -1,
-		dataFile:           dataFile,
-		templateFile:       "templates.json",
-		configFile:         "kairu.yaml",
-		config:             cfg,
-		streakState:        streakState,
-		appError:           strings.Join(startupErrors, " | "),
-		outboxFile:         defaultOutboxFile(),
-		deliveredNotifyIDs: make(map[string]time.Time),
-		soundscapes:        soundscapes,
-		soundscapeIndex:    -1,
-		internalLogs:       []string{},
-		petState:            pState,
-		petEnabled:          petEnabled,
-		showPetSidebar:      true,
+		mode:                  mode,
+		textInput:             ti,
+		durationInput:         di,
+		noteInput:             ni,
+		tagInput:              gi,
+		focusedField:          initialFocus,
+		entries:               entryList,
+		templates:             templates,
+		taskSuggestions:       buildTaskSuggestions(entryList, cfg.PinnedTasks, fileTasks),
+		suggestionIndex:       -1,
+		dataFile:              dataFile,
+		templateFile:          "templates.json",
+		configFile:            "kairu.yaml",
+		config:                cfg,
+		streakState:           streakState,
+		appError:              strings.Join(startupErrors, " | "),
+		outboxFile:            defaultOutboxFile(),
+		deliveredNotifyIDs:    make(map[string]time.Time),
+		soundscapes:           soundscapes,
+		soundscapeIndex:       -1,
+		internalLogs:          []string{},
+		petState:              pState,
+		petEnabled:            petEnabled,
+		showPetSidebar:        true,
 		showPetLevelUpOverlay: false,
+		tamagotchiActiveMenu:  "",
+		tamagotchiMenuSelect:  0,
+		tamagotchiFeedback:    "",
 	}
 	m.logInternal("SYSTEM: Kairu TUI started")
 	m = m.setInputFocus(initialFocus)

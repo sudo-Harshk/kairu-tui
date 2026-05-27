@@ -102,6 +102,7 @@ go build -o kairu
 - `Space`: Pause or resume the active timer.
 - `Ctrl + P`: Open the Template Manager.
 - `Ctrl + M`: Toggle the Soundscape selector.
+- `Ctrl + T`: Open the interactive Cyber-Tamagotchi handheld console.
 - `S`: Open the Settings panel.
   - **Vertical Navigation:** Move cursor using `Up`/`Down` Arrows, `j`/`k`, or `Tab`/`Shift+Tab`.
   - **Toggling & Selection:** Cycle presets or toggle options using `Space` or `Enter`.
@@ -136,17 +137,18 @@ Press **S** to open settings and configure your focus environment:
 ### Streak Recovery
 Kairu features a unique **Recovery Mode**. If you miss exactly one day of work, the app enters recovery state. Completing a single session before midnight will "recover" your streak, preventing the demotivation of a reset.
 
-### Cyber-Tamagotchi Focus Pet (ASCII Companion)
-To combat developer fatigue and keep your deep-work sessions engaging, Kairu features a highly animated, theme-adaptive **Cyber-Tamagotchi Companion**—**Neko the Robo-Kitty**! If your terminal window is wide enough (`>= 90` columns), Neko sits side-by-side with your active forms and countdown timer clocks:
+### Cyber-Tamagotchi Interactive Companion (ASCII Console)
+To combat developer fatigue and keep your deep-work sessions engaging, Kairu features a highly interactive **Cyber-Tamagotchi Companion**—**Neko the Robo-Kitty**! Neko sits side-by-side with your active forms and countdown timer clocks in wide terminals, or can be fully interacted with via a dedicated handheld console screen:
 
-*   **Real-Time Frame-by-Frame Animations**: Watch your companion blink while resting, intensely type on a mini console keyboard with flying electrical sparks during work blocks (`[💻]`, `[⌨️]`, `[⚡︎]`), and snooze peacefully with floating dream `Zzz`'s during breaks or late at night.
-*   **Progressive Leveling & Evolution**: Completing Pomodoro focus sessions feeds your companion. Earned XP triggers level-ups, evolving Neko across three distinct growth phases:
-    *   *Baby* (Level 1–3)
-    *   *Teen* (Level 4–7)
-    *   *Cyber-Ascended God* (Level 8–10)
-*   **Interactive Dialogue Bubbles**: Neko wiggles its bubble tail to speak dynamic, personality-rich dialogue that directly responds to active work, break, pause, or late-night states.
-*   **Rare Cosmetic Loot**: Successful work blocks yield a 15% random chance to discover rare accessories (*Wizard Hat*, *Cyber Visor*, *Golden Crown*, *Laser Goggles*, *Mini Cape*) which award bonus XP and are permanently displayed on Neko's visual ASCII avatar!
-*   **Sidebar Toggle**: Press **`Ctrl+G`** at any time to instantly hide or show your animated buddy.
+*   **Dedicated Handheld LCD Screen (`Ctrl + T`)**: Step inside a retro classic handheld game console casing, beautifully constructed in raw Unicode. View status bars for **Health**, **Hunger**, **Happiness**, **Cleanliness**, and **Energy** in real time!
+*   **Real-Time Offline Decay & Catch-Up**: Stats decay dynamically over time—even when the application is closed! When you launch Kairu, Neko catches up on simulated time, waking up, getting hungry, popping, or potentially getting sick if neglected.
+*   **Pomo-Coin Economy & Shop**: Earn **Pomo-Coins** by completing focus sessions (e.g. 1 coin per minute). Spend your hard-earned coins in the shop to buy foods (*Fish Kibble*, *Cyber Cookies*, *Cyber Colas*) or life-saving *Anti-Virus Medicine*!
+*   **Terminal Mini-Games**: Play fully-interactive mini-games directly in the LCD screen to raise Neko's happiness and earn extra coins:
+    *   **Pomo-Type**: A technical coding speed-typing test that tracks WPM and accuracy!
+    *   **Binary Guessing Game**: Guess the decimal equivalent of Neko's secret 4-bit binary byte!
+*   **Progressive Leveling & Evolution**: Gaining XP triggers level-ups, evolving Neko across three distinct growth phases: *Baby Droid*, *Robo-Teenager*, and *Cyber-Ascended God*.
+*   **Rare Cosmetic Loot & Rebirth**: Work blocks yield a 15% random chance to discover rare cosmetic items (*Wizard Hat*, *Cyber Visor*, *Golden Crown*, etc.) to display on Neko's avatar. If Neko sadly passes away due to extreme neglect, rebirth them with a new name while keeping your inventory and coin balance!
+*   **Sidebar Toggle**: Press **`Ctrl + G`** at any time to instantly hide or show your animated buddy in the workspace sidebar.
 
 ### Visual Analytics Dashboard
 Kairu features a highly visual, theme-cohesive **Analytics** dashboard. Press `Tab` to cycle through the stats views from your active screen to open the dashboard cards:
