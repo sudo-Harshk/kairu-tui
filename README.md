@@ -143,6 +143,7 @@ To combat developer fatigue and keep your deep-work sessions engaging, Kairu fea
 *   **Dedicated Handheld LCD Screen (`Ctrl + T`)**: Step inside a retro classic handheld game console casing, beautifully constructed in raw Unicode. View status bars for **Health**, **Hunger**, **Happiness**, **Cleanliness**, and **Energy** in real time!
 *   **Real-Time 500ms Animations**: Driven by an isolated asynchronous render ticker, Neko breathes, blinks, and animates smoothly in real time at a responsive **500ms interval**—even if the user is sitting completely idle on the main input screen.
 *   **Dynamic 15s dialogue & Micro-Actions**: Neko's thoughts update dynamically every **15 seconds** with developer-centric dialogue and micro-actions (like chasing a virtual cursor, wiggling ears, yawning at syntax, or stretching claws) based on its current level and mood.
+*   **Active Focus Interventions**: During deep-work Pomodoro blocks, Neko acts as your active focus buddy, dynamically intercepting regular text at key milestones (like 5, 10, 15, 20, 25, 30, 40, and 50 minutes) to bring you virtual tea 🍵, encourage deep focus frequency synchronization 🎧, remind you to stretch your paws 🐾, and congratulate your coding sprints!
 *   **Real-Time Offline Decay & Catch-Up**: Stats decay dynamically over time—even when the application is closed! When you launch Kairu, Neko catches up on simulated time, waking up, getting hungry, popping, or potentially getting sick if neglected.
 *   **Pomo-Coin Economy & Shop**: Earn **Pomo-Coins** by completing focus sessions (e.g. 1 coin per minute). Spend your hard-earned coins in the shop to buy foods (*Fish Kibble*, *Cyber Cookies*, *Cyber Colas*) or life-saving *Anti-Virus Medicine*!
 *   **Terminal Mini-Games**: Play fully-interactive mini-games directly in the LCD screen to raise Neko's happiness and earn extra coins:
@@ -151,6 +152,17 @@ To combat developer fatigue and keep your deep-work sessions engaging, Kairu fea
 *   **Progressive Leveling & Evolution**: Gaining XP triggers level-ups, evolving Neko across three distinct growth phases: *Baby Droid*, *Robo-Teenager*, and *Cyber-Ascended God*.
 *   **Rare Cosmetic Loot & Rebirth**: Work blocks yield a 15% random chance to discover rare cosmetic items (*Wizard Hat*, *Cyber Visor*, *Golden Crown*, etc.) to display on Neko's avatar. If Neko sadly passes away due to extreme neglect, rebirth them with a new name while keeping your inventory and coin balance!
 *   **Sidebar Toggle**: Press **`Ctrl + G`** at any time to instantly hide or show your animated buddy in the workspace sidebar.
+
+#### Focus Interventions Milestones
+During an active work session, Neko dynamically updates its thoughts during the first 30 seconds of these key milestones:
+*   **5 min**: Brings you a warm virtual green tea 🍵
+*   **10 min**: Synchronizes your focus frequencies to deep neural flow states 🎧
+*   **15 min**: Reminds you to adjust your posture and stretch your paws 🐾
+*   **20 min**: Calibrates cyber-visor sensors to match your high coding output ⚡️
+*   **25 min**: Cheers you on for hitting the core Pomodoro interval 💻
+*   **30 min**: Curls up on your terminal window in proud satisfaction ❤️
+*   **40 min**: Celebrates your absolute mastery of complex coding routines 🏆
+*   **50 min**: Emits a legendary ascension state to match your focus streak 🚀
 
 ### Visual Analytics Dashboard
 Kairu features a highly visual, theme-cohesive **Analytics** dashboard. Press `Tab` to cycle through the stats views from your active screen to open the dashboard cards:

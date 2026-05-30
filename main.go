@@ -3060,6 +3060,11 @@ func sendTelegramMessage(token, chatID, text string) error {
 }
 
 func (m model) View() string {
+	// Sync active focus session fields to petState for real-time interventions
+	m.petState.TimerRunning = m.running
+	m.petState.TimerMode = m.mode
+	m.petState.SessionElapsed = m.sessionElapsed
+
 	switch m.mode {
 	case "input":
 		return renderInputView(m)

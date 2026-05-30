@@ -36,6 +36,11 @@ type PetState struct {
 	Coins        int            `json:"coins"`          // In-game currency
 	Inventory    map[string]int `json:"inventory"`      // Food & medical items
 	LastTickTime time.Time      `json:"last_tick_time"` // For offline decay calculations
+
+	// Transient fields for active focus session interventions (ignored in JSON)
+	SessionElapsed int            `json:"-"`
+	TimerRunning   bool           `json:"-"`
+	TimerMode      string         `json:"-"`
 }
 
 // DefaultPet creates a basic starting pet (Neko the Robo-Kitty)
@@ -564,6 +569,33 @@ func getCosmeticHatASCII(item string) string {
 
 // GetDialogue returns a dynamic, character-fitting dialogue line
 func (p *PetState) GetDialogue() string {
+	if p.TimerRunning && p.TimerMode == "timer" {
+		minute := p.SessionElapsed / 60
+		second := p.SessionElapsed % 60
+
+		// Show custom interactive focus interventions for the first 30 seconds of key minutes!
+		if second < 30 {
+			switch minute {
+			case 5:
+				return "*brings you a virtual hot tea* 🍵 Sip some tea, human, and keep coding!"
+			case 10:
+				return "*purrs softly* Focus frequencies fully synchronized. You're doing amazing! 🎧"
+			case 15:
+				return "*stretches paws* We've been typing for 15 minutes. Remember to sit up straight! 🐾"
+			case 20:
+				return "*adjusts cyber-visor* My sensors detect intense productivity! Finish strong! ⚡️"
+			case 25:
+				return "*wiggles tail* Almost at the 25-minute mark! Let's push this code! 💻"
+			case 30:
+				return "*curls up on your terminal* 30 minutes of solid work! Neko is so proud of you! ❤️"
+			case 40:
+				return "*does a happy flip* 40 minutes! You are a master programmer! 🏆"
+			case 50:
+				return "*eyes glowing green* 50 minutes of deep focus! A legendary session! 🚀"
+			}
+		}
+	}
+
 	var quotes []string
 
 	switch p.Mood {
