@@ -525,6 +525,8 @@ func restoreProject(dataFile, templateFile, configFile, outboxFile, backupPath s
 
 type tickTockMsg time.Time
 
+type petAnimTickMsg time.Time
+
 type notifResultMsg struct {
 	id     string
 	status string
@@ -666,6 +668,10 @@ func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickTockMsg(t) })
 }
 
+func petAnimTick() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg { return petAnimTickMsg(t) })
+}
+
 func (m model) Init() tea.Cmd {
 	if m.mode == "fatal" {
 		return nil
@@ -673,6 +679,9 @@ func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textinput.Blink, m.flushOutboxCmd()}
 	if (m.activeSessionMode() == "timer" || m.activeSessionMode() == "break") && m.running {
 		cmds = append(cmds, tickCmd())
+	}
+	if m.petEnabled {
+		cmds = append(cmds, petAnimTick())
 	}
 	return tea.Batch(cmds...)
 }
@@ -790,6 +799,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case petAnimTickMsg:
+		if m.petEnabled && (m.mode == "tamagotchi" || (m.showPetSidebar && m.width >= 90)) {
+			m.petState.TickStateDecay(time.Now())
+			return m, petAnimTick()
+		}
+		return m, nil
+
 	case notifResultMsg:
 		if msg.err != nil {
 			m.setAppError(msg.err, "Notification failed")
@@ -831,6 +847,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		if m.petEnabled && m.showPetSidebar && m.width >= 90 {
+			return m, petAnimTick()
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -845,6 +864,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key == "ctrl+g" && m.mode != "fatal" {
 			if m.petEnabled {
 				m.showPetSidebar = !m.showPetSidebar
+				if m.showPetSidebar && m.width >= 90 {
+					return m, petAnimTick()
+				}
 				return m, nil
 			}
 		}
@@ -867,7 +889,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.petState.TickStateDecay(time.Now())
 					_ = SavePetState("pet.json", m.petState)
 				}
-				return m, tickCmd()
+				return m, tea.Batch(tickCmd(), petAnimTick())
 			}
 		}
 

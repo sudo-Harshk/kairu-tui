@@ -573,6 +573,8 @@ func (p *PetState) GetDialogue() string {
 			"I'm keeping an eye on your syntax, purr.",
 			"No distractions, human! Purr-fect work ahead.",
 			"My sensors detect heavy productivity...",
+			"*wiggles ears* You're in the flow zone!",
+			"*blinks green lens* Refactoring looks optimal.",
 		}
 	case "happy":
 		quotes = []string{
@@ -580,12 +582,15 @@ func (p *PetState) GetDialogue() string {
 			"You did so well! Meow! Hugs!",
 			"Mrow! Break time! Time to stretch!",
 			"I am so proud of you! *purrs*",
+			"*chases a virtual cursor* Yay, a commit!",
+			"*does a backflip* Level up in concentration!",
 		}
 	case "sleeping":
 		quotes = []string{
 			"Zzz... soft paws coding... zzz...",
 			"Mew... just 5 more minutes of sleep...",
 			"Zzz... dreaming of clean pull requests... zzz...",
+			"*twitching whiskers* Zzz... compiling... zzz...",
 		}
 	case "grumpy":
 		quotes = []string{
@@ -593,6 +598,7 @@ func (p *PetState) GetDialogue() string {
 			"My binary bowl is empty. Focus please!",
 			"Mew... Don't ignore me for too long...",
 			"Hey! Tap those keys, I'm waiting!",
+			"*scratching terminal* Hmph, productivity lost...",
 		}
 	default: // "idle"
 		quotes = []string{
@@ -600,6 +606,10 @@ func (p *PetState) GetDialogue() string {
 			"Let's build a streak, human!",
 			"Purring softly... standard focus routines loaded.",
 			"Which file are we refactoring today?",
+			"*wiggles tail* Ready to push to production?",
+			"*yawns* Did you remember to handle that err != nil?",
+			"*stretches claws* I'm watching your import statements...",
+			"*chases a bug* Is that a compilation error I see?",
 		}
 	}
 
@@ -607,9 +617,10 @@ func (p *PetState) GetDialogue() string {
 	if len(quotes) == 0 {
 		return "Let's focus!"
 	}
-	// Use standard deterministic mapping to prevent dialogue bubble flickering every animation frame
-	hourHash := time.Now().Hour() + time.Now().Minute()
-	return quotes[hourHash%len(quotes)]
+	// Use standard deterministic mapping to prevent dialogue bubble flickering every animation frame.
+	// Changing every 15 seconds makes the pet feel much more alive and real-time!
+	timeHash := int(time.Now().Unix() / 15)
+	return quotes[timeHash%len(quotes)]
 }
 
 // ---------------------------------------------------------
