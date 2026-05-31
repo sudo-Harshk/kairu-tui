@@ -1901,7 +1901,7 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = "input"
 			return m, nil
 		}
-	case "ctrl+m":
+	case "ctrl+m", "ctrl+b":
 		if m.mode == "soundscapes" {
 			m.mode = m.soundscapeReturnMode
 			return m, nil
@@ -3363,7 +3363,7 @@ func renderInputView(m model) string {
 		recentOverlay = strings.Join(overlayLines, "\n")
 	}
 
-	hintLine := "[Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [Ctrl+M] Soundscapes   [?] Help   [q] Quit"
+	hintLine := "[Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [Ctrl+B] Soundscapes   [?] Help   [q] Quit"
 	if m.petEnabled {
 		hintLine += "   [Ctrl+G] Toggle Pet"
 	}
@@ -3466,14 +3466,14 @@ func renderTimerView(m model) string {
 	if m.petEnabled {
 		petHint = "  [Ctrl+G] Pet"
 	}
-	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help" + petHint
+	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+B] Soundscapes  [?] Help" + petHint
 	if m.guardianLocked {
 		hint += "  [Esc] Abort"
 	} else {
 		hint += "  [q] Quit"
 	}
 	if !m.running {
-		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+M] Soundscapes  [?] Help" + petHint
+		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+B] Soundscapes  [?] Help" + petHint
 		if m.guardianLocked {
 			hint += "  [Esc] Abort"
 		} else {
@@ -4346,7 +4346,7 @@ func renderSoundscapeMenuView(m model) string {
 		lines = append(lines, "", "  (No audio files found in "+m.config.SoundscapesDir+")")
 	}
 
-	footer := "[Enter] Select   [Esc/Ctrl+M] Cancel"
+	footer := "[Enter] Select   [Esc/Ctrl+B] Cancel"
 	block := renderBanner(m.config) + "\n\n" +
 		"╭─────────────────────────────────────╮\n" +
 		"│  🎵  Soundscapes                   │\n" +
@@ -4523,7 +4523,7 @@ func renderHelpView(m model) string {
 		formatHelpLine("Tab", "Switch field"),
 		formatHelpLine("Enter", "Start session"),
 		formatHelpLine("Ctrl+P", "Templates"),
-		formatHelpLine("Ctrl+M", "Soundscapes"),
+		formatHelpLine("Ctrl+B", "Soundscapes"),
 		"",
 		"Timer/Break:",
 		formatHelpLine("Space", "Pause/Resume"),
@@ -4531,7 +4531,7 @@ func renderHelpView(m model) string {
 		formatHelpLine("Enter", "End session"),
 		formatHelpLine("Tab", "Stats"),
 		formatHelpLine("S", "Settings"),
-		formatHelpLine("Ctrl+M", "Soundscapes"),
+		formatHelpLine("Ctrl+B", "Soundscapes"),
 		"",
 		"Edit:",
 		formatHelpLine("Enter", "Apply"),

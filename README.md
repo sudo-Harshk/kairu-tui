@@ -101,7 +101,7 @@ go build -o kairu
 - `Tab`: Switch between input fields and views.
 - `Space`: Pause or resume the active timer.
 - `Ctrl + P`: Open the Template Manager.
-- `Ctrl + M`: Toggle the Soundscape selector.
+- `Ctrl + B`: Toggle the Soundscape selector.
 - `Ctrl + T`: Open the interactive Cyber-Tamagotchi handheld console.
 - `S`: Open the Settings panel.
   - **Vertical Navigation:** Move cursor using `Up`/`Down` Arrows, `j`/`k`, or `Tab`/`Shift+Tab`.
@@ -112,7 +112,7 @@ go build -o kairu
 - `?`: Toggle the help overlay.
 
 ### Soundscapes
-Kairu includes a built-in Soundscape selector to help you maintain focus during work sessions. Press `Ctrl+M` from the input screen or while a timer is running to toggle the selector.
+Kairu includes a built-in Soundscape selector to help you maintain focus during work sessions. Press `Ctrl+B` from the input screen or while a timer is running to toggle the selector.
 
 * **Natively Synthesized Tracks (No Dependencies):** Kairu features a built-in pure Go synthesizer engine that generates focus frequencies directly. These do not require any external audio players or files:
   * `[Synth] White Noise`
