@@ -108,6 +108,7 @@ go build -o kairu
   - **Toggling & Selection:** Cycle presets or toggle options using `Space` or `Enter`.
   - **Incremental Adjustment:** Change volume levels, frequency offsets, or hours using `Left`/`Right` Arrows or `h`/`l`.
   - **Exit Settings:** Exit back to your previous active view (timer, break, or stats) using `Esc`.
+- `Ctrl + Y`: Open the Kairu-Type minimalist speed-typing arena.
 - `?`: Toggle the help overlay.
 
 ### Soundscapes
@@ -170,6 +171,18 @@ Kairu features a highly visual, theme-cohesive **Analytics** dashboard. Press `T
 - **Top Focus Tasks:** A horizontal unicode bar chart showing time allocation across your top 5 tasks, along with exact duration and percentage contribution.
 - **Top Tags & Categories:** An advanced category breakdown rendering horizontal visual progress bars based on session tags to track exactly where your time is being invested.
 - **Theme-Adaptive & Responsive:** Box borders and progress bars dynamically scale to fit your terminal width and automatically shift colors to match your current active visual theme (Forest, Cyberpunk, Matrix, etc.).
+
+### Kairu-Type Minimalist Typing Arena (`Ctrl + Y`)
+Kairu features a fully integrated speed-typing simulator inspired by Monkeytype, designed to help developers warm up their fingers or practice programming muscle memory.
+- **Sleek Minimalist Aesthetic:** Frameless paragraph display where untyped words are dim gray, correct keys are bright white/green, and typos are highlighted in red. Includes a reactive color-block caret.
+- **Exact Caret Alignment:** Custom space-preserving wrapping ensures butter-smooth, 1-to-1 cursor movements across line breaks.
+- **Multiple Test Modes:** Cycle settings while idle using `Tab`:
+  - **Time Mode:** 15, 30, or 60-second countdown tests driven by Kairu's second ticker.
+  - **Words Mode:** Race to type 10, 25, or 50 generated words.
+- **Curated Developer Lexicon:** Custom word generator pulling from a ~200-word bank of programming constructs (`goroutine`, `interface`, `pointer`, `mutex`, `struct`, etc.).
+- **Live Performance Analytics:** Completing a test renders a visual ASCII WPM progression line chart showing WPM speed spikes and error drops over time, alongside raw WPM and accuracy metrics.
+- **Break Time Synergy:** Complete typing tests during active Pomodoro breaks to earn bonus Pomo-Coins (+1 coin per 10 WPM above 40 WPM, up to 15 coins!) to spend in Neko's shop.
+- **Personal Records:** High scores are automatically tracked and saved local-first to `typing_records.json`.
 
 
 ## Tech Stack

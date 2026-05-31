@@ -210,6 +210,7 @@ type model struct {
 	tamagotchiFeedbackTime time.Time
 	typingGame             TypingGameState
 	binaryGame             BinaryGameState
+	kairuType              KairuTypeState
 }
 
 func loadSoundscapes(dir string) ([]string, error) {
@@ -788,13 +789,46 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				model, cmd := m.completeSession()
 				return model, tea.Batch(notifyC, cmd)
 			}
-			if m.mode == "timer" || m.mode == "break" || m.mode == "settings" || m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" || m.mode == "help" || m.mode == "logs" || m.mode == "templates" || m.mode == "soundscapes" || m.mode == "tamagotchi" {
-				return m, tickCmd()
-			}
-			return m, nil
 		}
+
+		if m.mode == "kairu_type" {
+			if m.kairuType.Active && !m.kairuType.Finished {
+				if m.kairuType.Mode == "time" {
+					if m.kairuType.TimeRemaining > 0 {
+						m.kairuType.TimeRemaining--
+						elapsedSecs := m.kairuType.TargetTime - m.kairuType.TimeRemaining
+						m.kairuType.SampleWPM(elapsedSecs)
+					}
+					if m.kairuType.TimeRemaining <= 0 {
+						m.kairuType.FinishTest()
+						// Award coins during break!
+						if sessionMode == "break" && m.running && m.kairuType.WPM >= 40 {
+							coinsGained := (m.kairuType.WPM - 40) / 10
+							if coinsGained < 2 {
+								coinsGained = 2
+							}
+							if coinsGained > 15 {
+								coinsGained = 15
+							}
+							m.petState.Coins += coinsGained
+							m.logInternal("TYPING: Break typing test complete. Earned %d bonus Pomo-Coins! (WPM: %d)", coinsGained, m.kairuType.WPM)
+							_ = SavePetState("pet.json", m.petState)
+						}
+					}
+				} else {
+					// Word Mode
+					elapsedSecs := int(time.Since(m.kairuType.StartTime).Seconds())
+					m.kairuType.SampleWPM(elapsedSecs)
+				}
+			}
+		}
+
 		if m.mode == "tamagotchi" {
 			m.petState.TickStateDecay(time.Now())
+			return m, tickCmd()
+		}
+
+		if m.mode == "timer" || m.mode == "break" || m.mode == "settings" || m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" || m.mode == "report" || m.mode == "help" || m.mode == "logs" || m.mode == "templates" || m.mode == "soundscapes" || m.mode == "tamagotchi" || m.mode == "kairu_type" {
 			return m, tickCmd()
 		}
 		return m, nil
@@ -893,12 +927,116 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Global toggle for Kairu-Type Screen (Ctrl+Y)
+		if key == "ctrl+y" && m.mode != "fatal" {
+			if m.mode == "kairu_type" {
+				m.mode = m.statsReturnMode
+				if m.mode == "" || m.mode == "kairu_type" {
+					m.mode = "input"
+				}
+			} else {
+				m.statsReturnMode = m.mode
+				m.mode = "kairu_type"
+				m.kairuType.ResetTest()
+			}
+			return m, tickCmd()
+		}
+
 		if m.mode == "fatal" {
 			switch key {
 			case "ctrl+c", "q", "enter", "esc":
 				return m, tea.Quit
 			}
 			return m, nil
+		}
+
+		if m.mode == "kairu_type" {
+			sessionMode := m.activeSessionMode()
+			if m.kairuType.Finished {
+				switch key {
+				case "enter":
+					m.kairuType.ResetTest()
+					return m, nil
+				case "esc":
+					m.mode = m.statsReturnMode
+					if m.mode == "" || m.mode == "kairu_type" {
+						m.mode = "input"
+					}
+					return m, nil
+				case "tab":
+					// Switch mode: time vs words
+					if m.kairuType.Mode == "time" {
+						m.kairuType = InitKairuType("words", 25)
+					} else {
+						m.kairuType = InitKairuType("time", 30)
+					}
+					return m, nil
+				case "ctrl+r":
+					m.kairuType.ResetTest()
+					return m, nil
+				}
+				return m, nil
+			}
+
+			switch key {
+			case "esc":
+				m.mode = m.statsReturnMode
+				if m.mode == "" || m.mode == "kairu_type" {
+					m.mode = "input"
+				}
+				return m, nil
+			case "ctrl+r":
+				m.kairuType.ResetTest()
+				return m, nil
+			case "tab":
+				if !m.kairuType.Active {
+					if m.kairuType.Mode == "time" {
+						if m.kairuType.TargetTime == 15 {
+							m.kairuType = InitKairuType("time", 30)
+						} else if m.kairuType.TargetTime == 30 {
+							m.kairuType = InitKairuType("time", 60)
+						} else {
+							m.kairuType = InitKairuType("words", 10)
+						}
+					} else {
+						if m.kairuType.TargetWords == 10 {
+							m.kairuType = InitKairuType("words", 25)
+						} else if m.kairuType.TargetWords == 25 {
+							m.kairuType = InitKairuType("words", 50)
+						} else {
+							m.kairuType = InitKairuType("time", 15)
+						}
+					}
+				}
+				return m, nil
+			case "backspace":
+				m.kairuType.HandleBackspace()
+				return m, nil
+			case "space":
+				m.kairuType.AddChar(" ")
+				return m, nil
+			case "enter", "ctrl+m":
+				return m, nil
+			default:
+				if len(key) == 1 {
+					m.kairuType.AddChar(key)
+					
+					// Trigger completion check for Word Mode immediately
+					if m.kairuType.Finished && sessionMode == "break" && m.running && m.kairuType.WPM >= 40 {
+						coinsGained := (m.kairuType.WPM - 40) / 10
+						if coinsGained < 2 {
+							coinsGained = 2
+						}
+						if coinsGained > 15 {
+							coinsGained = 15
+						}
+						m.petState.Coins += coinsGained
+						m.logInternal("TYPING: Break typing test complete. Earned %d bonus Pomo-Coins! (WPM: %d)", coinsGained, m.kairuType.WPM)
+						_ = SavePetState("pet.json", m.petState)
+					}
+				}
+				return m, nil
+			}
 		}
 
 		if key == "?" {
@@ -3070,6 +3208,9 @@ func (m model) View() string {
 		return renderInputView(m)
 	case "timer", "break":
 		return renderTimerView(m)
+	case "kairu_type":
+		theme := activeTheme(m.config)
+		return RenderKairuTypeView(m.kairuType, m.width, theme.accent, theme.primary, renderBanner(m.config))
 	case "edit":
 		return renderEditView(m)
 	case "stats":
@@ -4821,6 +4962,7 @@ func main() {
 		tamagotchiActiveMenu:  "",
 		tamagotchiMenuSelect:  0,
 		tamagotchiFeedback:    "",
+		kairuType:             InitKairuType("time", 30),
 	}
 	m.logInternal("SYSTEM: Kairu TUI started")
 	m = m.setInputFocus(initialFocus)
