@@ -10,11 +10,24 @@ import (
 	"kairu-tui/internal/backup"
 	"kairu-tui/internal/config"
 	"kairu-tui/internal/entries"
+	"kairu-tui/internal/kairutype"
 	"kairu-tui/internal/tui"
 )
 
 func main() {
 	paths := config.DefaultPaths()
+	kairutype.RecordsPath = paths.TypingRecordsFile
+
+	// Migrate old configuration/data files from CWD to XDG directory
+	if err := config.MigrateFromCWD(paths); err != nil {
+		fmt.Printf("Warning: data migration failed: %v\n", err)
+	}
+
+	// Ensure standard directories exist
+	if err := paths.EnsureDirsExist(); err != nil {
+		fmt.Printf("Error: failed to create configuration directories: %v\n", err)
+		os.Exit(1)
+	}
 
 	exportPath := flag.String("export", "", "Export entries.json to the provided file path")
 	importPath := flag.String("import", "", "Import entries from the provided file path into entries.json")

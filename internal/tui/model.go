@@ -143,7 +143,11 @@ func (m model) Init() tea.Cmd {
 
 // New creates and initializes a new Bubbletea model with paths.
 func New(paths config.Paths) tea.Model {
+	kairutype.RecordsPath = paths.TypingRecordsFile
 	startupErrors := []string{}
+	if err := paths.EnsureDirsExist(); err != nil {
+		startupErrors = append(startupErrors, fmt.Sprintf("Failed to create configuration directories: %v", err))
+	}
 	if err := config.LoadEnvFile(".env"); err != nil {
 		startupErrors = append(startupErrors, fmt.Sprintf("Failed to load .env: %v", err))
 	}

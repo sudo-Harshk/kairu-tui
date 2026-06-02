@@ -12,6 +12,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// RecordsPath is the path to save/load typing records. Defaults to typing_records.json.
+var RecordsPath = "typing_records.json"
+
+
 // Curated dictionary of 200 coding, terminal, and productivity-oriented terms
 var DeveloperDictionary = []string{
 	"func", "struct", "interface", "package", "import", "return", "string", "int", "float64", "bool",
@@ -246,18 +250,18 @@ func (s *KairuTypeState) SaveRecord() {
 	if updated {
 		data, err := json.MarshalIndent(s.Records, "", "  ")
 		if err == nil {
-			_ = os.WriteFile("typing_records.json", data, 0644)
+			_ = os.WriteFile(RecordsPath, data, 0644)
 		}
 	}
 }
 
-// LoadRecords loads records from typing_records.json
+// LoadRecords loads records from the path configured in RecordsPath
 func (s *KairuTypeState) LoadRecords() {
 	s.Records = TypingRecords{
 		BestTimeWPM: make(map[int]int),
 		BestWordWPM: make(map[int]int),
 	}
-	data, err := os.ReadFile("typing_records.json")
+	data, err := os.ReadFile(RecordsPath)
 	if err == nil {
 		_ = json.Unmarshal(data, &s.Records)
 	}
