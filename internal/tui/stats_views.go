@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"kairu-tui/internal/analytics"
 	"kairu-tui/internal/streak"
+	"kairu-tui/internal/ui"
 )
 
 func renderStatsView(m model) string {
@@ -37,30 +40,42 @@ func renderStatsView(m model) string {
 		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
 	}
 
+	theme := activeTheme(m.config)
+	cardWidth := 18
+	// Ensure uniform height by adding a newline to single-line cards
+	card1 := ui.Panel("📅 TODAY", fmt.Sprintf("  %s\n", daily), theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
+	card2 := ui.Panel("🔥 STREAKS", fmt.Sprintf("  Current: %d\n  Best: %d", streakState.Current, streakState.Best), theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
+	card3 := ui.Panel("✦ RECOVERY", fmt.Sprintf("  %s\n", streak.RecoveryLabel(streakState)), theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
+	card4 := ui.Panel("⚖️ RATIO", fmt.Sprintf("  Work: %d%%\n  Break: %d%%", workRatio, 100-workRatio), theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
+
+	var cardsBlock string
+	if m.width >= 80 {
+		// Fit all in a single horizontal row
+		cardsBlock = lipgloss.JoinHorizontal(lipgloss.Top, card1, "  ", card2, "  ", card3, "  ", card4)
+	} else if m.width >= 40 {
+		// 2x2 grid
+		row1 := lipgloss.JoinHorizontal(lipgloss.Top, card1, "  ", card2)
+		row2 := lipgloss.JoinHorizontal(lipgloss.Top, card3, "  ", card4)
+		cardsBlock = row1 + "\n\n" + row2
+	} else {
+		// Stack vertically
+		cardsBlock = strings.Join([]string{card1, card2, card3, card4}, "\n\n")
+	}
+
+	barWidth := 60
+	if m.width >= 80 {
+		barWidth = 80
+	} else if m.width > 0 && m.width < 60 {
+		barWidth = m.width - 6
+	}
+
+	shortcuts := []string{"[Tab] Cycle Views", "[S] Settings", "[?] Help", "[q] Quit"}
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, barWidth)
+
 	block := fmt.Sprintf(`%s
 %s
 
-┌─────────────────┐
-│  📅  Today      │
-│  %-13s  │
-└─────────────────┘
-
-┌─────────────────┐
-│  🔥  Streaks    │
-│  Current: %-3d  │
-│  Best: %-7d│
-└─────────────────┘
-
-┌─────────────────┐
-│  Recovery       │
-│  %-13s  │
-└─────────────────┘
-
-┌─────────────────┐
-│  ⚖️  Ratio      │
-│  Work: %d%%     │
-│  Break: %d%%    │
-└─────────────────┘
+%s
 
 Weekly Activity (7 days):
 
@@ -71,22 +86,15 @@ Streak History (14 days):
 %s
 
 %s
-
 %s
-
-%s
-`, renderBanner(m.config), tabs, daily, streakState.Current, streakState.Best, streak.RecoveryLabel(streakState), workRatio, 100-workRatio, barChart, streakChart, emptyMessage, tagSummary, footer)
+%s`, renderBanner(m.config), tabs, cardsBlock, barChart, streakChart, emptyMessage, tagSummary, statusBar)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderAnalyticsView(m model) string {
 	taskTotals, tagTotals, summary := analytics.BuildAnalyticsSummary(m.entries)
 	tabs := renderStatsTabs("analytics", m.config)
-	footer := "[Tab] Cycle Views   [S] Settings   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
-	if errorLine != "" {
-		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
-	}
 
 	theme := activeTheme(m.config)
 
@@ -113,7 +121,7 @@ func renderAnalyticsView(m model) string {
 	summaryBuilder.WriteString(fmt.Sprintf("  Average session:   %s\n", streak.FormatDuration(summary.AverageSeconds)))
 	summaryBuilder.WriteString(fmt.Sprintf("  Longest session:   %s\n", streak.FormatDuration(summary.LongestSeconds)))
 	summaryBuilder.WriteString(fmt.Sprintf("  Busiest day:       %s", summary.BusiestDay))
-	summaryCard := renderDashboardCard("PRODUCTIVITY SUMMARY", summaryBuilder.String(), theme, cardWidth)
+	summaryCard := ui.Panel("PRODUCTIVITY SUMMARY", summaryBuilder.String(), theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
 
 	// 2. TOP TASKS CARD
 	taskLines := renderTopDurationBars(taskTotals, summary.WorkSeconds, 5, theme, true, barWidth)
@@ -123,7 +131,7 @@ func renderAnalyticsView(m model) string {
 	} else {
 		tasksContent = strings.Join(taskLines, "\n")
 	}
-	tasksCard := renderDashboardCard("Top tasks:", tasksContent, theme, cardWidth)
+	tasksCard := ui.Panel("Top tasks:", tasksContent, theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
 
 	// 3. TOP TAGS CARD
 	totalTagSeconds := 0
@@ -137,7 +145,10 @@ func renderAnalyticsView(m model) string {
 	} else {
 		tagsContent = strings.Join(tagLines, "\n")
 	}
-	tagsCard := renderDashboardCard("Top tags:", tagsContent, theme, cardWidth)
+	tagsCard := ui.Panel("Top tags:", tagsContent, theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
+
+	shortcuts := []string{"[Tab] Cycle Views", "[S] Settings", "[?] Help", "[q] Quit"}
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, cardWidth)
 
 	block := fmt.Sprintf(`%s
 %s
@@ -148,26 +159,29 @@ func renderAnalyticsView(m model) string {
 
 %s
 
-%s
-`, renderBanner(m.config), tabs, summaryCard, tasksCard, tagsCard, footer)
+%s`, renderBanner(m.config), tabs, summaryCard, tasksCard, tagsCard, statusBar)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderHeatmapView(m model) string {
 	heatmap := renderActivityHeatmap(m.entries, m.config, m.width)
 	tabs := renderStatsTabs("heatmap", m.config)
-	footer := "[Tab] Cycle Views   [S] Settings   [?] Help   [q] Quit"
 	errorLine := renderAppError(m)
-	if errorLine != "" {
-		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+
+	theme := activeTheme(m.config)
+	barWidth := 60
+	if m.width > 0 && m.width < 70 {
+		barWidth = m.width - 6
 	}
+
+	shortcuts := []string{"[Tab] Cycle Views", "[S] Settings", "[?] Help", "[q] Quit"}
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, barWidth)
 
 	block := fmt.Sprintf(`%s
 %s
 
 %s
 
-%s
-`, renderBanner(m.config), tabs, heatmap, footer)
+%s`, renderBanner(m.config), tabs, heatmap, statusBar)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }

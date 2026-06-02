@@ -7,36 +7,42 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"kairu-tui/internal/soundscape"
+	"kairu-tui/internal/ui"
 )
 
 func renderSoundscapeMenuView(m model) string {
-	lines := []string{"Select a Soundscape (Work Only):"}
-	noneLabel := "  [ ] None"
+	theme := activeTheme(m.config)
+	var items []string
 	if m.soundscapeIndex == -1 {
-		noneLabel = "  [*] None"
+		items = append(items, "[*] None")
+	} else {
+		items = append(items, "[ ] None")
 	}
-	lines = append(lines, noneLabel)
-
 	for i, track := range m.soundscapes {
-		prefix := "  [ ] "
 		if i == m.soundscapeIndex {
-			prefix = "  [*] "
+			items = append(items, "[*] "+track)
+		} else {
+			items = append(items, "[ ] "+track)
 		}
-		lines = append(lines, prefix+track)
 	}
 
+	menuIndex := m.soundscapeIndex + 1
+
+	var content string
 	if len(m.soundscapes) == 0 {
-		lines = append(lines, "", "  (No audio files found in "+m.config.SoundscapesDir+")")
+		content = ui.Menu(items, menuIndex, theme) + "\n\n  (No audio files found in " + m.config.SoundscapesDir + ")"
+	} else {
+		content = ui.Menu(items, menuIndex, theme)
 	}
 
-	footer := "[Enter] Select   [Esc/Ctrl+B] Cancel"
-	block := renderBanner(m.config) + "\n\n" +
-		"╭─────────────────────────────────────╮\n" +
-		"│  🎵  Soundscapes                   │\n" +
-		"╰─────────────────────────────────────╯\n\n" +
-		strings.Join(lines, "\n") + "\n\n" +
-		footer
+	formWidth := 46
+	soundscapeCard := ui.Panel("🎵 Soundscapes Selector", content, theme, formWidth, lipgloss.RoundedBorder(), theme.Primary)
+	statusBar := ui.StatusBar([]string{"[Enter] Select", "[Esc/Ctrl+B] Cancel"}, "", theme, formWidth)
+
+	block := renderBanner(m.config) + "\n\n" + soundscapeCard + "\n\n" + statusBar
 
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }

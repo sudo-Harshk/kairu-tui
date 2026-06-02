@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"kairu-tui/internal/config"
 )
 
 // Pomo-Type Quotes
@@ -67,11 +69,11 @@ func InitBinaryGame() BinaryGameState {
 }
 
 // RenderTypingGame renders the typing game LCD panel
-func RenderTypingGame(game TypingGameState, width int, accentColor string, primaryColor string) string {
-	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(accentColor))
-	primary := lipgloss.NewStyle().Foreground(lipgloss.Color(primaryColor))
-	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	wrongStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+func RenderTypingGame(game TypingGameState, width int, theme config.ThemeStyle) string {
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent))
+	primary := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Primary))
+	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice))
+	wrongStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warning))
 
 	var rows []string
 	rows = append(rows, primary.Bold(true).Render("   ⌨️  P O M O - T Y P E   C H A L L E N G E"))
@@ -113,11 +115,11 @@ func RenderTypingGame(game TypingGameState, width int, accentColor string, prima
 }
 
 // RenderBinaryGame renders the binary/guessing game LCD panel
-func RenderBinaryGame(game BinaryGameState, width int, accentColor string, primaryColor string) string {
-	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(accentColor))
-	primary := lipgloss.NewStyle().Foreground(lipgloss.Color(primaryColor))
-	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	gold := lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
+func RenderBinaryGame(game BinaryGameState, width int, theme config.ThemeStyle) string {
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent))
+	primary := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Primary))
+	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice))
+	gold := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent))
 
 	var rows []string
 	rows = append(rows, primary.Bold(true).Render("   🤖  B I N A R Y   G U E S S I N G   G A M E"))
@@ -135,7 +137,7 @@ func RenderBinaryGame(game BinaryGameState, width int, accentColor string, prima
 			rows = append(rows, accent.Bold(true).Render(fmt.Sprintf("   🎉 CORRECT! The secret number was %d!", game.TargetNum)))
 			rows = append(rows, accent.Render("   Awarded +15 Happiness and +5 Pomo-Coins! 🪙"))
 		} else {
-			rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf("   GAME OVER! The secret number was %d.", game.TargetNum)))
+			rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warning)).Render(fmt.Sprintf("   GAME OVER! The secret number was %d.", game.TargetNum)))
 		}
 		rows = append(rows, subtle.Render("   [Enter] Go back"))
 	} else {

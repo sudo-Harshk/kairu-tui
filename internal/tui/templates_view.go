@@ -8,34 +8,35 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"kairu-tui/internal/templates"
+	"kairu-tui/internal/ui"
 )
 
 func renderTemplateManagerView(m model) string {
-	footer := "[Tab/Arrows] Browse   [Enter] Apply   [Ctrl+T] Save current form   [Ctrl+R] Rename   [Ctrl+D] Delete   [Ctrl+Z] Undo delete   [Ctrl+Y] Duplicate   [Ctrl+P/Esc] Back   [?] Help   [q] Quit"
-	errorLine := renderAppError(m)
-	statusLine := renderNotificationStatus(m)
-	if errorLine != "" {
-		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	formWidth := 76
+	if m.width > 0 && m.width < 82 {
+		formWidth = m.width - 6
 	}
-	if statusLine != "" {
-		footer = fmt.Sprintf("%s\n%s", statusLine, footer)
+	if formWidth < 46 {
+		formWidth = 46
 	}
 
-	listLines := []string{"Templates:"}
+	errorLine := renderAppError(m)
+	theme := activeTheme(m.config)
+	statusLine := renderNotificationStatus(m, formWidth)
+
+	var listContent string
 	if len(m.templates) == 0 {
-		listLines = append(listLines, "  No templates saved yet.")
+		listContent = "  No templates saved yet."
 	} else {
-		for i, template := range m.templates {
-			prefix := "  "
-			if i == m.templateIndex {
-				prefix = "> "
-			}
+		var items []string
+		for _, template := range m.templates {
 			tagStr := ""
 			if len(template.Tags) > 0 {
 				tagStr = fmt.Sprintf(" [%s]", strings.Join(template.Tags, ", "))
 			}
-			listLines = append(listLines, fmt.Sprintf("%s%s (%s)%s", prefix, template.Name, template.Duration, tagStr))
+			items = append(items, fmt.Sprintf("%s (%s)%s", template.Name, template.Duration, tagStr))
 		}
+		listContent = ui.Menu(items, m.templateIndex, theme)
 	}
 
 	preview := m.currentTemplateDetails()
@@ -44,16 +45,34 @@ func renderTemplateManagerView(m model) string {
 	}
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(32).Render(strings.Join(listLines, "\n")),
+		lipgloss.NewStyle().Width(32).Render("Templates:\n" + listContent),
 		"    ",
-		lipgloss.NewStyle().Width(40).Render(preview),
+		lipgloss.NewStyle().Width(formWidth-36).Render(preview),
 	)
-	block := renderBanner(m.config) + "\n\n" +
-		"╭─────────────────────────────────────╮\n" +
-		"│  Session Templates                 │\n" +
-		"╰─────────────────────────────────────╯\n\n" +
-		body + "\n\n" +
-		footer
+
+	templateCard := ui.Panel("📋 Session Templates", body, theme, formWidth, lipgloss.RoundedBorder(), theme.Primary)
+
+	shortcuts := []string{
+		"[Tab/Arrows] Browse",
+		"[Enter] Apply",
+		"[Ctrl+T] Save",
+		"[Ctrl+R] Rename",
+		"[Ctrl+D] Delete",
+		"[Ctrl+Z] Undo",
+		"[Ctrl+Y] Duplicate",
+		"[Ctrl+P/Esc] Back",
+		"[?] Help",
+		"[q] Quit",
+	}
+
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, formWidth)
+
+	var block string
+	if statusLine != "" {
+		block = renderBanner(m.config) + "\n\n" + templateCard + "\n\n" + statusLine + "\n\n" + statusBar
+	} else {
+		block = renderBanner(m.config) + "\n\n" + templateCard + "\n\n" + statusBar
+	}
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 

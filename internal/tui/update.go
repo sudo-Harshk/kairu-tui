@@ -101,7 +101,41 @@ func (m *model) saveOnQuit() {
 	m.mode = previous
 }
 
+type clearNotificationMsg struct {
+	id int
+}
+
+func clearNotificationCmd(id int) tea.Cmd {
+	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+		return clearNotificationMsg{id: id}
+	})
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if clearMsg, ok := msg.(clearNotificationMsg); ok {
+		if clearMsg.id == m.notificationCounter {
+			m.notificationStatus = ""
+		}
+		return m, nil
+	}
+
+	oldNotificationCounter := m.notificationCounter
+	newModelInterface, cmd := m.updateInner(msg)
+
+	newModel, ok := newModelInterface.(model)
+	if !ok {
+		return newModelInterface, cmd
+	}
+
+	if newModel.notificationCounter != oldNotificationCounter && newModel.notificationStatus != "" {
+		clearCmd := clearNotificationCmd(newModel.notificationCounter)
+		return newModel, tea.Batch(cmd, clearCmd)
+	}
+
+	return newModel, cmd
+}
+
+func (m model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
@@ -1419,6 +1453,7 @@ func (m *model) setAppError(err error, context string) {
 func (m *model) setNotificationStatus(status string) {
 	m.notificationStatus = status
 	if status != "" {
+		m.notificationCounter++
 		m.logInternal("STATUS: %s", status)
 	}
 }

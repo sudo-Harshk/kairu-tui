@@ -81,24 +81,6 @@ func renderHorizontalProgressBar(percent float64, totalWidth int, theme config.T
 	return filledStr + emptyStr
 }
 
-func renderDashboardCard(title string, content string, theme config.ThemeStyle, width int) string {
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(theme.Primary)).
-		Padding(0, 1).
-		Width(width)
-
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Accent)).
-		Bold(true)
-
-	divider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Primary)).
-		Render(strings.Repeat("─", width-2))
-
-	cardContent := titleStyle.Render(title) + "\n" + divider + "\n" + content
-	return borderStyle.Render(cardContent)
-}
 
 func renderTopDurationBars(totals map[string]int, totalSeconds int, limit int, theme config.ThemeStyle, useAccent bool, barWidth int) []string {
 	if len(totals) == 0 {

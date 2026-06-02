@@ -36,6 +36,25 @@ Kairu operates on a local-first principle, ensuring all your data remains on you
                [ Outbox Retry Logic ] <----------+
 ```
 
+### Project Structure & Modularization
+
+The codebase follows a modular architecture where the root `main.go` acts solely as a coordinator, delegating all operations to separate, self-contained packages under `internal/`:
+
+*   **[main.go](file:///D:/Projects/Personal/kairu-tui/main.go)**: Entrypoint. Responsible for flag parsing, executing offline CLI utilities (e.g. backup, restore, import, export), and bootstrapping the primary TUI loop.
+*   **[internal/config](file:///D:/Projects/Personal/kairu-tui/internal/config/)**: Handles application configuration (`Config` struct, default values), platform path resolution (XDG standards), environment loading, and theme/font registrations.
+*   **[internal/timer](file:///D:/Projects/Personal/kairu-tui/internal/timer/)**: Handles duration math, converting clock/time formatting, and validating time input strings.
+*   **[internal/entries](file:///D:/Projects/Personal/kairu-tui/internal/entries/)**: Data persistence model for focus sessions, file validation, and log importing/merging.
+*   **[internal/templates](file:///D:/Projects/Personal/kairu-tui/internal/templates/)**: Custom template structure and storage management.
+*   **[internal/backup](file:///D:/Projects/Personal/kairu-tui/internal/backup/)**: Zip-less serialization logic to bundle config, history logs, templates, and outbox lists into backup states.
+*   **[internal/streak](file:///D:/Projects/Personal/kairu-tui/internal/streak/)**: Real-time streak statistics engine and recovery period calculations.
+*   **[internal/analytics](file:///D:/Projects/Personal/kairu-tui/internal/analytics/)**: Core analytics aggregations and markdown report compiler.
+*   **[internal/notification](file:///D:/Projects/Personal/kairu-tui/internal/notification/)**: Multichannel delivery driver supporting sound executors, desktop OS channels, Telegram API webhooks, and local outbox queue management.
+*   **[internal/soundscape](file:///D:/Projects/Personal/kairu-tui/internal/soundscape/)**: Audio file parser and built-in synthesizer sound wave generator.
+*   **[internal/pet](file:///D:/Projects/Personal/kairu-tui/internal/pet/)**: Cyber-Tamagotchi state engine, food/item inventory database, action controllers, and technical mini-games logic.
+*   **[internal/kairutype](file:///D:/Projects/Personal/kairu-tui/internal/kairutype/)**: Speed-typing simulator core, dictionaries, caret tracking, and telemetry recorder.
+*   **[internal/tasks](file:///D:/Projects/Personal/kairu-tui/internal/tasks/)**: Suggested tasks lists provider.
+*   **[internal/tui](file:///D:/Projects/Personal/kairu-tui/internal/tui/)**: Presentation layer. Orchestrates Bubbletea's MVU (Model-View-Update) routing loop, keyboard key bindings, and subview layouts.
+
 ### Hard Rules
 
 - **Local-First:** All session history (`entries.json`) and configuration remain local. No mandatory cloud accounts.

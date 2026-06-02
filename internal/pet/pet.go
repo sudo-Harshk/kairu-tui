@@ -11,6 +11,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+
+	"kairu-tui/internal/config"
+	"kairu-tui/internal/ui"
 )
 
 // PetState represents the persistent status of the companion
@@ -766,7 +769,7 @@ func centerLines(text string, width int) string {
 }
 
 // RenderPetBox draws the pet with its name, level, progress bar, and dialogue bubble
-func RenderPetBox(pet PetState, width int) string {
+func RenderPetBox(pet PetState, width int, theme config.ThemeStyle) string {
 	// Dynamically calculate the active frame (cycles every 750ms between 0 and 1 using high-resolution millisecond clocks)
 	frame := int((time.Now().UnixNano() / int64(time.Millisecond)) / 750) % 2
 
@@ -774,23 +777,15 @@ func RenderPetBox(pet PetState, width int) string {
 	dialogue := pet.GetDialogue()
 
 	dialogWidth := 26
-	boxWidth := dialogWidth + 4 // Total width of dialogue box including border padding
 
-	// Format dialogue bubble (wrapped)
-	wrappedDialogue := wrapText(dialogue, dialogWidth)
-	bubbleBorderTop := "╭" + strings.Repeat("─", dialogWidth+2) + "╮"
-	bubbleBorderBot := "╰" + strings.Repeat("─", dialogWidth+2) + "╯"
+	// Format dialogue bubble (wrapped) styled with theme.Notice
+	bubbleStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(theme.Notice)).
+		Padding(0, 1).
+		Width(dialogWidth + 4)
 
-	var bubbleLines []string
-	bubbleLines = append(bubbleLines, bubbleBorderTop)
-	for _, line := range wrappedDialogue {
-		padding := dialogWidth - len(line)
-		bubbleLines = append(bubbleLines, fmt.Sprintf("│ %s%s │", line, strings.Repeat(" ", padding)))
-	}
-	bubbleLines = append(bubbleLines, bubbleBorderBot)
-	bubbleLines = append(bubbleLines, "  ╰─v") // Clean, sleek speech bubble tail pointing downwards
-
-	bubbleBlock := strings.Join(bubbleLines, "\n")
+	bubbleBlock := bubbleStyle.Render(dialogue) + "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice)).Render("  ╰─v")
 
 	// Format pet info banner
 	barWidth := 10
@@ -803,26 +798,29 @@ func RenderPetBox(pet PetState, width int) string {
 	}
 
 	xpTarget := pet.Level * 250
-	pct := float64(pet.Experience) / float64(xpTarget)
-	filled := int(pct * float64(barWidth))
-	if filled > barWidth {
-		filled = barWidth
+	pct := float64(pet.Experience) / float64(xpTarget) * 100
+	if pct > 100 {
+		pct = 100
 	}
-	empty := barWidth - filled
-	xpBar := fmt.Sprintf("[%s%s]", strings.Repeat("█", filled), strings.Repeat("░", empty))
+	if pct < 0 {
+		pct = 0
+	}
+	// Use unified ui.ProgressBar component
+	xpBar := ui.ProgressBar(pct, barWidth, theme.Accent, theme.Notice)
 
 	statsBlock := fmt.Sprintf(
 		"🐾 %s (Lv.%d)\n%s %d%%\nEvolution: %s\nMood: %s\nFed: 🍖 %d",
 		pet.Name,
 		pet.Level,
 		xpBar,
-		int(pct*100),
+		int(pct),
 		stageName,
 		cases.Title(language.English).String(pet.Mood),
 		pet.TotalSessionsFed,
 	)
 
 	// Center-align the animated ASCII art and stats under the speech bubble!
+	boxWidth := dialogWidth + 4
 	centeredASCII := centerLines(ascii, boxWidth)
 	centeredStats := centerLines(statsBlock, boxWidth)
 
@@ -858,26 +856,23 @@ func wrapText(text string, limit int) []string {
 }
 
 // RenderTamagotchiScreen draws the interactive console screen of the companion
-func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSelection int, feedbackMsg string, accentColor string, primaryColor string) string {
-	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(accentColor))
-	primaryStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(primaryColor))
-	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")) // Red
-	goldStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // Gold
+func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSelection int, feedbackMsg string, theme config.ThemeStyle) string {
+	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent))
+	primaryStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Primary))
+	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warning))
+	goldStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice))
 
 	// Build the pet display section
 	frame := int((time.Now().UnixNano() / int64(time.Millisecond)) / 500) % 2
 	petASCII := pet.GetASCII(frame)
 
 	if pet.IsDead {
-		// Ghost / Tombstone ASCII
 		petASCII = "     .-.     \n    (q.p)    \n  _  \\\"/  _  \n ( \\_/^\\_/ ) \n  \\_______/  \n    R.I.P.   "
 	} else if pet.IsSleeping {
-		// Sleep state
 		petASCII = strings.ReplaceAll(petASCII, "o.o", "-.-")
 		petASCII = strings.ReplaceAll(petASCII, "^.^", "-.-")
 	}
 
-	// Dynamic dialogue bubble or feedback message
 	dialogueText := feedbackMsg
 	if dialogueText == "" {
 		dialogueText = pet.GetDialogue()
@@ -886,14 +881,13 @@ func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSele
 		dialogueText = "G H O S T L Y  S I L E N C E..."
 	}
 
-	// 1. STATS INNER BARS
-	healthBar := renderSmallBar(pet.Health, 10, primaryColor)
-	hungerBar := renderSmallBar(pet.Hunger, 10, primaryColor)
-	happyBar := renderSmallBar(pet.Happiness, 10, primaryColor)
-	cleanBar := renderSmallBar(pet.Cleanliness, 10, primaryColor)
-	energyBar := renderSmallBar(pet.Energy, 10, primaryColor)
+	// 1. STATS INNER BARS (themed and color-coded)
+	healthBar := renderSmallBar(pet.Health, 10, theme.Accent, theme)
+	hungerBar := renderSmallBar(pet.Hunger, 10, theme.Warning, theme)
+	happyBar := renderSmallBar(pet.Happiness, 10, theme.Accent, theme)
+	cleanBar := renderSmallBar(pet.Cleanliness, 10, theme.Primary, theme)
+	energyBar := renderSmallBar(pet.Energy, 10, theme.Notice, theme)
 
-	// Status lines
 	var statsLeft string
 	if pet.IsDead {
 		statsLeft = warningStyle.Render("  [ STATUS: DECEASED 🪦 ]\n  Run rebirth to reset.")
@@ -908,20 +902,20 @@ func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSele
 		)
 	}
 
-	// XP & Coins Display
+	// XP & Coins Display (with badge for Level)
 	xpTarget := pet.Level * 250
 	pctXP := float64(pet.Experience) / float64(xpTarget)
-	xpBar := renderSmallBar(int(pctXP*100), 10, accentColor)
-	
+	xpBar := renderSmallBar(int(pctXP*100), 10, theme.Accent, theme)
+
 	statusRight := fmt.Sprintf(
-		"  🐾 Name: %s\n  ⭐ Level: %d\n  🧬 Evolution: %s\n  📈 XP: %s %d%%\n  🪙 Coins: %s",
+		"  🐾 Name: %s\n  ⭐ Level: %s\n  🧬 Evolution: %s\n  📈 XP: %s %d%%\n  🪙 Coins: %s",
 		goldStyle.Bold(true).Render(pet.Name),
-		pet.Level,
+		ui.Badge(fmt.Sprintf("Lv.%d", pet.Level), theme, true),
 		accentStyle.Render(getEvolutionStageName(pet.Level)),
 		xpBar, int(pctXP*100),
 		goldStyle.Bold(true).Render(fmt.Sprintf("%d", pet.Coins)),
 	)
-	
+
 	if pet.IsSick {
 		statusRight += "\n  " + warningStyle.Bold(true).Blink(true).Render("⚠️ SICK (anti-virus needed!)")
 	} else if pet.Poops > 0 {
@@ -930,24 +924,21 @@ func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSele
 		statusRight += "\n  " + primaryStyle.Render("🟢 State: Healthy & clean")
 	}
 
-	// 2. MAIN INNER DISPLAY CONTAINER
+	// 2. MAIN INNER DISPLAY CONTAINER (Proper Lipgloss borders & background)
 	innerWidth := 58
-	lcdBorderTop := "┌" + strings.Repeat("─", innerWidth) + "┐"
-	lcdBorderBot := "└" + strings.Repeat("─", innerWidth) + "┘"
 
-	// Format dialogue block
-	wrappedDiag := wrapText(dialogueText, innerWidth-4)
-	var diagLines []string
-	for _, l := range wrappedDiag {
-		diagLines = append(diagLines, fmt.Sprintf("│  %s%s  │", accentStyle.Italic(true).Render(l), strings.Repeat(" ", innerWidth-4-lipgloss.Width(l))))
-	}
-	diagBlock := strings.Join(diagLines, "\n")
+	// Wrap dialogue in a styled bubble using theme.Notice
+	bubbleStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(theme.Notice)).
+		Padding(0, 1).
+		Width(innerWidth - 4)
+	bubbleBlock := bubbleStyle.Render(dialogueText)
 
 	// Render Neko and poops inside LCD
 	petLines := strings.Split(petASCII, "\n")
 	var petRenderedLines []string
 	for i, pl := range petLines {
-		// Draw poop on right side if there are poops!
 		poopStr := ""
 		if !pet.IsDead {
 			if pet.Poops > 0 && i == len(petLines)-1 {
@@ -960,50 +951,41 @@ func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSele
 				poopStr = "        💩"
 			}
 		}
-		
-		padLeft := (innerWidth - lipgloss.Width(pl) - lipgloss.Width(poopStr)) / 2
-		padRight := innerWidth - lipgloss.Width(pl) - lipgloss.Width(poopStr) - padLeft
-		petRenderedLines = append(petRenderedLines, fmt.Sprintf("│%s%s%s%s│", strings.Repeat(" ", padLeft), pl, poopStr, strings.Repeat(" ", padRight)))
+
+		padLeft := (innerWidth - 4 - lipgloss.Width(pl) - lipgloss.Width(poopStr)) / 2
+		padRight := innerWidth - 4 - lipgloss.Width(pl) - lipgloss.Width(poopStr) - padLeft
+		petRenderedLines = append(petRenderedLines, fmt.Sprintf("%s%s%s%s", strings.Repeat(" ", padLeft), pl, poopStr, strings.Repeat(" ", padRight)))
 	}
 	petBlock := strings.Join(petRenderedLines, "\n")
 
-	// Assemble LCD Content
-	var lcdContent []string
-	lcdContent = append(lcdContent, lcdBorderTop)
-	lcdContent = append(lcdContent, fmt.Sprintf("│  %-*s│", innerWidth-2, primaryStyle.Bold(true).Render("C Y B E R - P E T   S C R E E N")))
-	lcdContent = append(lcdContent, "├"+strings.Repeat("─", innerWidth)+"┤")
-	lcdContent = append(lcdContent, petBlock)
-	lcdContent = append(lcdContent, "├"+strings.Repeat("─", innerWidth)+"┤")
-	lcdContent = append(lcdContent, diagBlock)
-	lcdContent = append(lcdContent, lcdBorderBot)
-	lcdBlock := strings.Join(lcdContent, "\n")
+	lcdContent := fmt.Sprintf("%s\n\n%s", petBlock, bubbleBlock)
+	lcdBlock := ui.Panel("📟 CYBER-PET MONITOR", lcdContent, theme, innerWidth, lipgloss.RoundedBorder(), theme.Primary)
 
 	// 3. MENU / ACTION PANELS
 	var actionBlock string
 	switch activeMenu {
 	case "feed":
 		options := []string{
-			fmt.Sprintf("1. Feed Fish Kibble (Restores +30 Hunger, +5 Happiness) - Qty: %d", pet.Inventory["fish"]),
-			fmt.Sprintf("2. Feed Cyber Cookie (Restores +20 Hunger, +30 Happiness, +10 Energy) - Qty: %d", pet.Inventory["treat"]),
-			fmt.Sprintf("3. Feed Cyber Cola (Restores +40 Energy, +10 Happiness, -10 Cleanliness) - Qty: %d", pet.Inventory["drink"]),
+			fmt.Sprintf("Feed Fish Kibble (Qty: %d)", pet.Inventory["fish"]),
+			fmt.Sprintf("Feed Cyber Cookie (Qty: %d)", pet.Inventory["treat"]),
+			fmt.Sprintf("Feed Cyber Cola (Qty: %d)", pet.Inventory["drink"]),
 		}
-		actionBlock = renderSubMenu("F E E D I N G   I N V E N T O R Y 🍖", options, menuSelection, innerWidth, primaryColor)
+		actionBlock = renderSubMenu("🍖 FEEDING INVENTORY", options, menuSelection, innerWidth, theme)
 	case "shop":
 		options := []string{
-			"1. Buy Fish Kibble (Cost: 5 coins)",
-			"2. Buy Cyber Cookie (Cost: 10 coins)",
-			"3. Buy Cyber Cola (Cost: 8 coins)",
-			"4. Buy Anti-Virus Medicine (Cost: 15 coins)",
+			"Buy Fish Kibble (5 coins)",
+			"Buy Cyber Cookie (10 coins)",
+			"Buy Cyber Cola (8 coins)",
+			"Buy Anti-Virus Medicine (15 coins)",
 		}
-		actionBlock = renderSubMenu("C Y B E R   S H O P P I N G 🪙", options, menuSelection, innerWidth, primaryColor)
+		actionBlock = renderSubMenu("🪙 CYBER SHOPPING", options, menuSelection, innerWidth, theme)
 	case "play":
 		options := []string{
-			"1. Play Pomo-Type Challenge (Typing Speed Game)",
-			"2. Play Binary Guessing Game (Higher/Lower Math Game)",
+			"Play Pomo-Type Challenge",
+			"Play Binary Guessing Game",
 		}
-		actionBlock = renderSubMenu("M I N I - G A M E S   L O B B Y 🎮", options, menuSelection, innerWidth, primaryColor)
+		actionBlock = renderSubMenu("🎮 MINI-GAMES LOBBY", options, menuSelection, innerWidth, theme)
 	default:
-		// Standard main operations menu selection
 		options := []string{
 			"FEED companion 🍖",
 			"PLAY mini-game 🎮",
@@ -1014,21 +996,12 @@ func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSele
 			"REBIRTH reset 🧬",
 			"EXIT console 🚪",
 		}
-		actionBlock = renderMainButtonsGrid(options, menuSelection, innerWidth, primaryColor)
+		actionBlock = renderMainButtonsGrid(options, menuSelection, innerWidth, theme)
 	}
 
-	// 4. ASSEMBLE ENTIRE HANDHELD CASING
-	shellBorderTop := accentStyle.Render("    .----------------------------------------------------------.")
-	shellHeader    := accentStyle.Render("   /                C Y B E R - P E T   1 9 9 6                 \\")
-	shellDivider   := accentStyle.Render("  |    .----------------------------------------------------.    |")
-	shellBorderBot := accentStyle.Render("   \\                   [A]       [B]       [C]                 /")
-	shellFooter    := accentStyle.Render("    '----------------------------------------------------------'")
-
-	var finalRows []string
-	finalRows = append(finalRows, shellBorderTop)
-	finalRows = append(finalRows, shellHeader)
-	finalRows = append(finalRows, shellDivider)
-
+	// 4. ASSEMBLE ENTIRE HANDHELD CASING inside a main Container (ui.Panel)
+	var shellContent []string
+	
 	// Embed stats left and right side-by-side!
 	statsLinesLeft := strings.Split(statsLeft, "\n")
 	statsLinesRight := strings.Split(statusRight, "\n")
@@ -1041,32 +1014,15 @@ func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSele
 		if i < len(statsLinesRight) {
 			sr = statsLinesRight[i]
 		}
-		rowContent := fmt.Sprintf("  |   %-*s%-*s   |", 34, sl, 32, sr)
-		finalRows = append(finalRows, rowContent)
-	}
-	
-	finalRows = append(finalRows, shellDivider)
-
-	// Embed the LCD screen
-	lcdLines := strings.Split(lcdBlock, "\n")
-	for _, l := range lcdLines {
-		finalRows = append(finalRows, fmt.Sprintf("  |    %s    |", l))
+		rowContent := fmt.Sprintf(" %-*s%-*s", 30, sl, 26, sr)
+		shellContent = append(shellContent, rowContent)
 	}
 
-	finalRows = append(finalRows, shellDivider)
+	shellContent = append(shellContent, "", lcdBlock, "", actionBlock)
 
-	// Embed the action button or sub-menus
-	actLines := strings.Split(actionBlock, "\n")
-	for _, l := range actLines {
-		finalRows = append(finalRows, fmt.Sprintf("  |    %s    |", l))
-	}
+	casing := ui.Panel("🎮 CYBER-PET RETRO CONSOLE (1996)", strings.Join(shellContent, "\n"), theme, innerWidth+4, lipgloss.DoubleBorder(), theme.Accent)
 
-	finalRows = append(finalRows, shellDivider)
-	finalRows = append(finalRows, shellBorderBot)
-	finalRows = append(finalRows, shellFooter)
-
-	// Return centered final casing
-	return centerBlock(width, strings.Join(finalRows, "\n"))
+	return centerBlock(width, casing)
 }
 
 func getEvolutionStageName(level int) string {
@@ -1079,81 +1035,46 @@ func getEvolutionStageName(level int) string {
 	return "Baby Droid 🐾"
 }
 
-func renderSmallBar(value int, width int, color string) string {
-	filled := int(float64(value) / 100.0 * float64(width))
-	if filled > width {
-		filled = width
-	}
-	if filled < 0 {
-		filled = 0
-	}
-	empty := width - filled
-	filledStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-	emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // Gray
-	return fmt.Sprintf("[%s%s]", filledStyle.Render(strings.Repeat("█", filled)), emptyStyle.Render(strings.Repeat("░", empty)))
+func renderSmallBar(value int, width int, color string, theme config.ThemeStyle) string {
+	return ui.ProgressBar(float64(value), width, color, theme.Notice)
 }
 
-func renderSubMenu(title string, options []string, selected int, width int, color string) string {
-	cStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+func renderSubMenu(title string, options []string, selected int, width int, theme config.ThemeStyle) string {
+	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice))
 
 	var rows []string
-	rows = append(rows, cStyle.Bold(true).Render("   "+title))
-	rows = append(rows, subtle.Render("   "+strings.Repeat("─", width-6)))
-
 	for i, opt := range options {
-		if i == selected {
-			rows = append(rows, accentStyle.Bold(true).Render(fmt.Sprintf("   ⚡ %s", opt)))
-		} else {
-			rows = append(rows, subtle.Render(fmt.Sprintf("     %s", opt)))
-		}
+		btn := ui.Button(opt, i == selected, theme)
+		rows = append(rows, "   "+btn)
 	}
-	// Pad menu to uniform height of 6 lines
-	for len(rows) < 6 {
+	// Pad menu to uniform height
+	for len(rows) < 4 {
 		rows = append(rows, "")
 	}
-	
-	// Add return hint
-	rows = append(rows, subtle.Render("   [↑/↓] Select  [Enter] Confirm  [Esc] Back"))
-	return strings.Join(rows, "\n")
+
+	content := strings.Join(rows, "\n\n") + "\n\n" + subtle.Render("   [↑/↓] Select  [Enter] Confirm  [Esc] Back")
+	return ui.Panel(title, content, theme, width, lipgloss.RoundedBorder(), theme.Primary)
 }
 
-func renderMainButtonsGrid(options []string, selected int, width int, color string) string {
-	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	activeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+func renderMainButtonsGrid(options []string, selected int, width int, theme config.ThemeStyle) string {
+	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice))
 
-	var rows []string
-	rows = append(rows, activeStyle.Bold(true).Render("   M A I N   O P E R A T I O N S   M E N U"))
-	rows = append(rows, subtle.Render("   "+strings.Repeat("─", width-6)))
-
-	// Draw 4 rows of 2 options side-by-side
-	for r := 0; r < 4; r++ {
-		idx1 := r * 2
-		idx2 := r * 2 + 1
-
-		opt1 := options[idx1]
-		opt2 := options[idx2]
-
-		var text1, text2 string
-		if idx1 == selected {
-			text1 = accentStyle.Bold(true).Render(fmt.Sprintf(" ▶ %s", opt1))
-		} else {
-			text1 = subtle.Render(fmt.Sprintf("   %s", opt1))
-		}
-
-		if idx2 == selected {
-			text2 = accentStyle.Bold(true).Render(fmt.Sprintf(" ▶ %s", opt2))
-		} else {
-			text2 = subtle.Render(fmt.Sprintf("   %s", opt2))
-		}
-
-		rows = append(rows, fmt.Sprintf(" %-*s %-s", 34, text1, text2))
+	var buttons []string
+	for i, opt := range options {
+		btn := ui.Button(opt, i == selected, theme)
+		buttons = append(buttons, btn)
 	}
-	
-	rows = append(rows, subtle.Render("   [↑/↓/←/→] Navigate Grid  [Enter] Press Button  [Esc] Exit"))
-	return strings.Join(rows, "\n")
+
+	var gridLines []string
+	// Draw 4 rows of 2 columns
+	for r := 0; r < 4; r++ {
+		btn1 := buttons[r*2]
+		btn2 := buttons[r*2+1]
+		gridLines = append(gridLines, fmt.Sprintf(" %-*s %-s", 32, btn1, btn2))
+	}
+
+	content := strings.Join(gridLines, "\n\n") + "\n\n" + subtle.Render("   [↑/↓/←/→] Navigate Grid  [Enter] Press Button  [Esc] Exit")
+	return ui.Panel("🎮 MAIN OPERATIONS MENU", content, theme, width, lipgloss.RoundedBorder(), theme.Primary)
 }
 
 func centerBlock(width int, content string) string {

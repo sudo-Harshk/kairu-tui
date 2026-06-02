@@ -7,30 +7,34 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"kairu-tui/internal/pet"
+	"kairu-tui/internal/ui"
 )
 
 func renderInputView(m model) string {
+	theme := activeTheme(m.config)
+
 	if m.showPetLevelUpOverlay {
-		return fmt.Sprintf("\n%s\n", centerBlock(m.width, renderPetLevelUpCard(m.petState)))
+		return fmt.Sprintf("\n%s\n", centerBlock(m.width, renderPetLevelUpCard(m.petState, theme)))
 	}
 
 	errorLine := ""
 	if m.inputError != "" {
-		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.inputError)
+		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warning)).Render(m.inputError)
 	}
-	templateLine := "Template: none"
+	templateLine := ""
 	if len(m.templates) > 0 {
 		if template, ok := m.currentTemplate(); ok {
-			templateLine = fmt.Sprintf("Template: %s (%d/%d)", template.Name, m.templateIndex+1, len(m.templates))
+			templateLine = fmt.Sprintf("%s (%d/%d)", template.Name, m.templateIndex+1, len(m.templates))
 		}
 	}
 	errorBlock := joinNonEmptyLines(errorLine, renderAppError(m))
 
-	recoveryMsg := ""
+	// Streak Recovery Panel (Success or Warning border)
+	var recoveryPanel string
 	if m.streakState.RecoveryAvailable {
-		recoveryMsg = "✦ Recovery mode — complete a session today to save your streak!"
+		recoveryPanel = ui.Panel("", "✦ Recovery mode — complete a session today to save your streak!", theme, 42, lipgloss.NormalBorder(), theme.Accent)
 	} else if m.streakState.RecoveryNeeded {
-		recoveryMsg = "◌ Streak lost — start fresh today and rebuild your momentum!"
+		recoveryPanel = ui.Panel("", "◌ Streak lost — start fresh today and rebuild your momentum!", theme, 42, lipgloss.NormalBorder(), theme.Warning)
 	}
 
 	recentOverlay := ""
@@ -39,63 +43,69 @@ func renderInputView(m model) string {
 		if len(m.taskSuggestions) < limit {
 			limit = len(m.taskSuggestions)
 		}
-		overlayLines := []string{"Suggested tasks:"}
+		var items []string
 		for i := 0; i < limit; i++ {
-			cursor := "  "
-			if i == m.suggestionIndex {
-				cursor = "> "
-			}
-			overlayLines = append(overlayLines, cursor+m.taskSuggestions[i])
+			items = append(items, m.taskSuggestions[i])
 		}
-		recentOverlay = strings.Join(overlayLines, "\n")
+		recentOverlay = "Suggested tasks:\n" + ui.Menu(items, m.suggestionIndex, theme)
 	}
 
-	hintLine := "[Tab] Switch Field   [Enter] Start/Apply   [Ctrl+T] Save Template   [Ctrl+B] Soundscapes   [?] Help   [q] Quit"
+	// Hotkeys for StatusBar
+	shortcuts := []string{
+		"[Tab] Switch Field",
+		"[Enter] Start/Apply",
+		"[Ctrl+T] Save Template",
+		"[Ctrl+B] Soundscapes",
+		"[?] Help",
+		"[q] Quit",
+	}
 	if m.petEnabled {
-		hintLine += "   [Ctrl+G] Toggle Pet"
+		shortcuts = append(shortcuts, "[Ctrl+G] Toggle Pet")
 	}
 
-	inputForm := fmt.Sprintf(`
-╭─────────────────────────────────────╮
-│  📝  What are you working on?      │
-╰─────────────────────────────────────╯
+	formWidth := 46
+	var formContentBuilder strings.Builder
 
-%s
-%s
-%s
+	if templateLine != "" {
+		formContentBuilder.WriteString(ui.FormField("Active Template", templateLine, m.focusedField == focusTemplate, theme) + "\n\n")
+	}
+	if recoveryPanel != "" {
+		formContentBuilder.WriteString(recoveryPanel + "\n\n")
+	}
 
-%s
+	formContentBuilder.WriteString(ui.FormField("Task Name", m.textInput.View(), m.focusedField == focusTask, theme) + "\n\n")
+	formContentBuilder.WriteString(ui.FormField("Duration (minutes)", m.durationInput.View(), m.focusedField == focusDuration, theme) + "\n\n")
+	formContentBuilder.WriteString(ui.FormField("Session Notes", m.noteInput.View(), m.focusedField == focusNote, theme) + "\n\n")
+	formContentBuilder.WriteString(ui.FormField("Tags (comma separated)", m.tagInput.View(), m.focusedField == focusTags, theme))
 
-%s
+	if recentOverlay != "" {
+		formContentBuilder.WriteString("\n\n" + recentOverlay)
+	}
 
-%s
+	formContentBuilder.WriteString("\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice)).Render("Templates: Left/Right while Template is focused\nUp/Down to browse suggested tasks"))
 
-%s
+	// Render the form inside a ui.Panel with themed borders
+	inputForm := ui.Panel("📝 What are you working on?", formContentBuilder.String(), theme, formWidth, lipgloss.RoundedBorder(), theme.Primary)
 
-%s
+	// Combine with status bar
+	statusBar := ui.StatusBar(shortcuts, errorBlock, theme, formWidth)
 
-%s
-Templates: Left/Right while Template is focused   Up/Down to browse suggested tasks`,
-		templateLine, recoveryMsg, recentOverlay, m.textInput.View(), m.durationInput.View(), m.noteInput.View(), m.tagInput.View(), errorBlock, hintLine)
+	fullForm := inputForm + "\n\n" + statusBar
 
 	if m.petEnabled && m.showPetSidebar && m.width >= 90 {
 		m.petState.UpdateMood(m.running, m.mode, m.sessionStart)
-		petBox := pet.RenderPetBox(m.petState, m.width)
+		petBox := pet.RenderPetBox(m.petState, m.width, theme)
 
-		formFrame := lipgloss.NewStyle().Padding(0, 1).Render(inputForm)
+		formFrame := lipgloss.NewStyle().Padding(0, 1).Render(fullForm)
 
-		theme := activeTheme(m.config)
-		petFrame := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color(theme.Primary)).
-			Padding(0, 1).
-			Render(petBox)
+		// Styled pet sidebar using ui.Panel
+		petFrame := ui.Panel("", petBox, theme, 36, lipgloss.RoundedBorder(), theme.Primary)
 
 		block := lipgloss.JoinHorizontal(lipgloss.Center, formFrame, petFrame)
 		return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 	}
 
-	return fmt.Sprintf("\n%s\n", centerBlock(m.width, inputForm))
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, fullForm))
 }
 
 func (m model) applyTaskSuggestion(delta int) model {

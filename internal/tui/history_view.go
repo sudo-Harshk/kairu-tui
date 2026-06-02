@@ -7,9 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"kairu-tui/internal/analytics"
 	"kairu-tui/internal/entries"
 	"kairu-tui/internal/streak"
+	"kairu-tui/internal/ui"
 )
 
 func renderHistoryView(m model) string {
@@ -22,7 +25,7 @@ func renderHistoryView(m model) string {
 		return entryList[i].Start.After(entryList[j].Start)
 	})
 
-	lines := []string{"Recent Sessions by Day:"}
+	var lines []string
 	if len(entryList) == 0 {
 		lines = append(lines, "  No sessions recorded yet.")
 	} else {
@@ -75,35 +78,62 @@ func renderHistoryView(m model) string {
 		}
 	}
 
-	tabs := renderStatsTabs("history", m.config)
-	footer := "[Tab] Cycle Views   [S] Settings   [?] Help   [q] Quit"
-	errorLine := renderAppError(m)
-	if errorLine != "" {
-		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	theme := activeTheme(m.config)
+	cardWidth := 76
+	if m.width > 0 && m.width < 82 {
+		cardWidth = m.width - 6
 	}
+	if cardWidth < 40 {
+		cardWidth = 40
+	}
+
+	tabs := renderStatsTabs("history", m.config)
+	historyCard := ui.Panel("📜 Focus History", strings.Join(lines, "\n"), theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
+
+	shortcuts := []string{"[Tab] Cycle Views", "[S] Settings", "[?] Help", "[q] Quit"}
+	errorLine := renderAppError(m)
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, cardWidth)
 
 	block := renderBanner(m.config) + "\n" +
 		tabs + "\n" +
-		strings.Join(lines, "\n") + "\n\n" +
-		footer
+		historyCard + "\n\n" +
+		statusBar
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderDailyReportView(m model) string {
 	lines := analytics.BuildDailyReport(m.entries, time.Now())
 	tabs := renderStatsTabs("report", m.config)
-	footer := "[Tab] Cycle Views   [E] Export markdown   [S] Settings   [?] Help   [q] Quit"
-	if strings.TrimSpace(m.notificationStatus) != "" {
-		footer = fmt.Sprintf("%s\n%s", renderNotificationStatus(m), footer)
+
+	theme := activeTheme(m.config)
+	cardWidth := 76
+	if m.width > 0 && m.width < 82 {
+		cardWidth = m.width - 6
 	}
-	if errorLine := renderAppError(m); errorLine != "" {
-		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
+	if cardWidth < 40 {
+		cardWidth = 40
 	}
 
-	block := renderBanner(m.config) + "\n" +
-		tabs + "\n" +
-		strings.Join(lines, "\n") + "\n\n" +
-		footer
+	reportCard := ui.Panel("📊 Daily Productivity Report", strings.Join(lines, "\n"), theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
+
+	shortcuts := []string{"[Tab] Cycle Views", "[E] Export markdown", "[S] Settings", "[?] Help", "[q] Quit"}
+	errorLine := renderAppError(m)
+	statusLine := renderNotificationStatus(m, cardWidth)
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, cardWidth)
+
+	var block string
+	if statusLine != "" {
+		block = renderBanner(m.config) + "\n" +
+			tabs + "\n" +
+			reportCard + "\n\n" +
+			statusLine + "\n\n" +
+			statusBar
+	} else {
+		block = renderBanner(m.config) + "\n" +
+			tabs + "\n" +
+			reportCard + "\n\n" +
+			statusBar
+	}
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 

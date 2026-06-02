@@ -9,51 +9,50 @@ import (
 
 	"kairu-tui/internal/config"
 	"kairu-tui/internal/soundscape"
+	"kairu-tui/internal/ui"
 )
 
 func renderSettingsView(m model) string {
-	footer := "[Tab] Switch   [Space] Toggle   [Left/Right] Adjust   [Enter] Run action   [Esc] Back   [q] Quit"
+	formWidth := 46
+	if m.width >= 110 {
+		formWidth = 110
+	}
 	errorLine := renderAppError(m)
-	statusLine := renderNotificationStatus(m)
-	if errorLine != "" {
-		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
-	}
-	if statusLine != "" {
-		footer = fmt.Sprintf("%s\n%s", statusLine, footer)
-	}
+	statusLine := renderNotificationStatus(m, formWidth)
+	theme := activeTheme(m.config)
 
 	leftColumn := strings.Join([]string{
 		renderSettingsSection(m.config, "Appearance", []string{
-			renderSettingLine(m.settingsCursor == settingsTheme, "Theme", themeLabel(m.config.Theme)),
-			renderSettingLine(m.settingsCursor == settingsFont, "Timer font", fontLabel(m.config.Font)),
-			renderSettingLine(m.settingsCursor == settingsLayout, "Timer layout", layoutLabel(m.config.Layout)),
+			renderSettingLine(m.settingsCursor == settingsTheme, "Theme", themeLabel(m.config.Theme), theme),
+			renderSettingLine(m.settingsCursor == settingsFont, "Timer font", fontLabel(m.config.Font), theme),
+			renderSettingLine(m.settingsCursor == settingsLayout, "Timer layout", layoutLabel(m.config.Layout), theme),
 		}),
 		renderSettingsSection(m.config, "Notifications", []string{
-			renderSettingLine(m.settingsCursor == settingsNotifications, "Notifications", boolLabel(m.config.Notifications)),
-			renderSettingLine(m.settingsCursor == settingsDesktop, "Desktop notifications", boolLabel(m.config.DesktopNotifications)),
-			renderSettingLine(m.settingsCursor == settingsWorkComplete, "Work complete", boolLabel(m.config.NotifyWorkComplete)),
-			renderSettingLine(m.settingsCursor == settingsBreakComplete, "Break complete", boolLabel(m.config.NotifyBreakComplete)),
-			renderSettingLine(m.settingsCursor == settingsSessionStart, "Session start", boolLabel(m.config.NotifySessionStart)),
-			renderSettingLine(m.settingsCursor == settingsSessionEnd, "Session end", boolLabel(m.config.NotifySessionEnd)),
-			renderSettingLine(m.settingsCursor == settingsPauseResume, "Pause/resume", boolLabel(m.config.NotifyPauseResume)),
-			renderSettingLine(m.settingsCursor == settingsEndingSoon, "Ending soon", boolLabel(m.config.NotifyEndingSoon)),
+			renderSettingLine(m.settingsCursor == settingsNotifications, "Notifications", boolLabel(m.config.Notifications), theme),
+			renderSettingLine(m.settingsCursor == settingsDesktop, "Desktop notifications", boolLabel(m.config.DesktopNotifications), theme),
+			renderSettingLine(m.settingsCursor == settingsWorkComplete, "Work complete", boolLabel(m.config.NotifyWorkComplete), theme),
+			renderSettingLine(m.settingsCursor == settingsBreakComplete, "Break complete", boolLabel(m.config.NotifyBreakComplete), theme),
+			renderSettingLine(m.settingsCursor == settingsSessionStart, "Session start", boolLabel(m.config.NotifySessionStart), theme),
+			renderSettingLine(m.settingsCursor == settingsSessionEnd, "Session end", boolLabel(m.config.NotifySessionEnd), theme),
+			renderSettingLine(m.settingsCursor == settingsPauseResume, "Pause/resume", boolLabel(m.config.NotifyPauseResume), theme),
+			renderSettingLine(m.settingsCursor == settingsEndingSoon, "Ending soon", boolLabel(m.config.NotifyEndingSoon), theme),
 		}),
 		renderSettingsSection(m.config, "Quiet Hours", []string{
-			renderSettingLine(m.settingsCursor == settingsQuietStart, "Quiet start", hourLabel(m.config.QuietHoursStart)),
-			renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd)),
+			renderSettingLine(m.settingsCursor == settingsQuietStart, "Quiet start", hourLabel(m.config.QuietHoursStart), theme),
+			renderSettingLine(m.settingsCursor == settingsQuietEnd, "Quiet end", hourLabel(m.config.QuietHoursEnd), theme),
 		}),
-		renderSettingsSection(m.config, "Synthesizer & Audio", []string{
-			renderSettingLine(m.settingsCursor == settingsSynthVolume, "Synth volume", renderVolumeBar(m.config.SynthVolume)),
-			renderSettingLine(m.settingsCursor == settingsBinauralPreset, "Binaural preset", binauralPresetLabel(m.config.BinauralPreset)),
-			renderSettingLine(m.settingsCursor == settingsBinauralCarrier, "Binaural carrier", customOrPresetCarrier(m)),
-			renderSettingLine(m.settingsCursor == settingsBinauralBeat, "Binaural detune", customOrPresetBeat(m)),
-			renderSettingLine(m.settingsCursor == settingsFadeIn, "Audio fade-in speed", fmt.Sprintf("%d ms", m.config.FadeInDuration)),
-			renderSettingLine(m.settingsCursor == settingsFadeOut, "Audio fade-out speed", fmt.Sprintf("%d ms", m.config.FadeOutDuration)),
+		renderSettingsSection(m.config, "Quiet Hours & Sleep", []string{
+			renderSettingLine(m.settingsCursor == settingsSynthVolume, "Synth volume", renderVolumeBar(m.config.SynthVolume, theme), theme),
+			renderSettingLine(m.settingsCursor == settingsBinauralPreset, "Binaural preset", binauralPresetLabel(m.config.BinauralPreset), theme),
+			renderSettingLine(m.settingsCursor == settingsBinauralCarrier, "Binaural carrier", customOrPresetCarrier(m), theme),
+			renderSettingLine(m.settingsCursor == settingsBinauralBeat, "Binaural detune", customOrPresetBeat(m), theme),
+			renderSettingLine(m.settingsCursor == settingsFadeIn, "Audio fade-in speed", fmt.Sprintf("%d ms", m.config.FadeInDuration), theme),
+			renderSettingLine(m.settingsCursor == settingsFadeOut, "Audio fade-out speed", fmt.Sprintf("%d ms", m.config.FadeOutDuration), theme),
 		}),
 		renderSettingsSection(m.config, "Backup/Tools", []string{
-			renderSettingLine(m.settingsCursor == settingsBackup, "Create backup", "Write snapshot to backup.json"),
-			renderSettingLine(m.settingsCursor == settingsRestore, "Restore backup", "Load snapshot from backup.json"),
-			renderSettingLine(m.settingsCursor == settingsClearOutbox, "Clear queue", fmt.Sprintf("Delete %d pending notifications", len(m.notificationOutbox))),
+			renderSettingLine(m.settingsCursor == settingsBackup, "Create backup", "Write snapshot to backup.json", theme),
+			renderSettingLine(m.settingsCursor == settingsRestore, "Restore backup", "Load snapshot from backup.json", theme),
+			renderSettingLine(m.settingsCursor == settingsClearOutbox, "Clear queue", fmt.Sprintf("Delete %d pending notifications", len(m.notificationOutbox)), theme),
 		}),
 	}, "\n\n")
 
@@ -66,99 +65,140 @@ func renderSettingsView(m model) string {
 		body = leftColumn + "\n\n" + rightColumn
 	}
 
-	hints := renderSettingsHintRow(m)
+	hints := ui.KeyHint(renderSettingsHintRow(m), theme)
 
-	block := renderBanner(m.config) + "\n\n" +
-		"╭─────────────────────────────────────╮\n" +
-		"│  Notification Settings              │\n" +
-		"╰─────────────────────────────────────╯\n\n" +
-		body + "\n\n" +
-		hints + "\n\n" +
-		footer
+	// Combine sections in a main layout container
+	mainCard := ui.Panel("⚙️ Application Settings", body+"\n\n"+hints, theme, formWidth, lipgloss.RoundedBorder(), theme.Primary)
+
+	shortcuts := []string{"[Tab] Switch", "[Space] Toggle", "[Left/Right] Adjust", "[Enter] Action", "[Esc] Back", "[q] Quit"}
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, formWidth)
+
+	var block string
+	if statusLine != "" {
+		block = renderBanner(m.config) + "\n\n" + mainCard + "\n\n" + statusLine + "\n\n" + statusBar
+	} else {
+		block = renderBanner(m.config) + "\n\n" + mainCard + "\n\n" + statusBar
+	}
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderSettingsSection(cfg config.Config, title string, lines []string) string {
 	theme := activeTheme(cfg)
-	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.Accent)).Render(title)
-	return fmt.Sprintf(`╭─────────────────────────────────────╮
-│  %s
-╰─────────────────────────────────────╯
-
-%s`, header, strings.Join(lines, "\n"))
+	return ui.Panel(title, strings.Join(lines, "\n"), theme, 46, lipgloss.NormalBorder(), theme.Primary)
 }
 
 func renderSettingsPreview(m model) string {
 	theme := activeTheme(m.config)
 	font := activeFont(m.config)
-	timerStr := renderASCIITimer("08:45", m.config)
-	lines := strings.Split(timerStr, "\n")
-	if len(lines) > 5 {
-		lines = lines[:5]
+	
+	var timerBlock string
+	if m.config.Layout == "minimal" {
+		timerBlock = themedStyle(m.config, theme.Accent).Bold(true).Render("08:45  ████████░░░░░░")
+	} else {
+		timerStr := renderASCIITimer("08:45", m.config)
+		if lipgloss.Width(timerStr) > 38 {
+			timerBlock = themedStyle(m.config, theme.Accent).Bold(true).Render("⏰ 08:45  ████████░░░░░░")
+		} else {
+			timerBlock = themedStyle(m.config, theme.Accent).Render(timerStr)
+		}
 	}
 
-	themeLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Render("Theme: " + themeLabel(m.config.Theme))
-	fontLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Primary)).Render("Font: " + font.Label)
-	layoutLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice)).Render("Layout: " + layoutLabel(m.config.Layout))
-	timerBlock := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Render(strings.Join(lines, "\n"))
+	themeLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Render("  Theme:  " + themeLabel(m.config.Theme))
+	fontLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Primary)).Render("  Font:   " + font.Label)
+	layoutLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice)).Render("  Layout: " + layoutLabel(m.config.Layout))
 
-	return fmt.Sprintf(`╭─────────────────────────────────────╮
-│  Live Preview                       │
-╰─────────────────────────────────────╯
+	content := fmt.Sprintf("%s\n%s\n%s\n\n%s", themeLine, fontLine, layoutLine, timerBlock)
 
-%s
-%s
-%s
-%s`, themeLine, fontLine, layoutLine, timerBlock)
+	return ui.Panel("📺 Live Preview", content, theme, 46, lipgloss.RoundedBorder(), theme.Primary)
 }
 
-func renderSettingsHintRow(m model) string {
+func renderSettingsHintRow(m model) []ui.KeyHintPair {
 	switch m.settingsCursor {
 	case settingsTheme:
-		return "Theme: Left/Right cycles presets. Space also cycles."
+		return []ui.KeyHintPair{
+			{Key: "Theme", Desc: "Left/Right cycles presets. Space also cycles."},
+		}
 	case settingsFont:
-		return "Typography: Left/Right cycles timer fonts. Space also cycles."
+		return []ui.KeyHintPair{
+			{Key: "Typography", Desc: "Left/Right cycles timer fonts. Space also cycles."},
+		}
 	case settingsLayout:
-		return "Layout: Left/Right cycles timer layouts. Space also cycles."
+		return []ui.KeyHintPair{
+			{Key: "Layout", Desc: "Left/Right cycles timer layouts. Space also cycles."},
+		}
 	case settingsQuietStart, settingsQuietEnd:
-		return "Quiet hours: Left/Right adjusts the hour."
+		return []ui.KeyHintPair{
+			{Key: "Quiet hours", Desc: "Left/Right adjusts the hour."},
+		}
 	case settingsNotifications, settingsDesktop, settingsWorkComplete, settingsBreakComplete, settingsSessionStart, settingsSessionEnd, settingsPauseResume, settingsEndingSoon:
-		return "Toggles: Space, Enter, or Left/Right flips the setting."
+		return []ui.KeyHintPair{
+			{Key: "Toggles", Desc: "Space, Enter, or Left/Right flips the setting."},
+		}
 	case settingsSynthVolume:
-		return "Synth Volume: Left/Right adjusts. Space cycles in 10% steps."
+		return []ui.KeyHintPair{
+			{Key: "Synth Volume", Desc: "Left/Right adjusts. Space cycles in 10% steps."},
+		}
 	case settingsBinauralPreset:
-		return "Binaural Preset: Left/Right or Space cycles brainwave presets."
+		return []ui.KeyHintPair{
+			{Key: "Binaural Preset", Desc: "Left/Right or Space cycles brainwave presets."},
+		}
 	case settingsBinauralCarrier:
 		if strings.ToLower(m.config.BinauralPreset) != "custom" {
-			return "Binaural Carrier: Locked to preset. Choose 'Custom' preset to edit."
+			return []ui.KeyHintPair{
+				{Key: "Binaural Carrier", Desc: "Locked to preset. Choose 'Custom' preset to edit."},
+			}
 		}
-		return "Binaural Carrier: Left/Right adjusts carrier frequency by 5 Hz."
+		return []ui.KeyHintPair{
+			{Key: "Binaural Carrier", Desc: "Left/Right adjusts carrier frequency by 5 Hz."},
+		}
 	case settingsBinauralBeat:
 		if strings.ToLower(m.config.BinauralPreset) != "custom" {
-			return "Binaural Beat: Locked to preset. Choose 'Custom' preset to edit."
+			return []ui.KeyHintPair{
+				{Key: "Binaural Beat", Desc: "Locked to preset. Choose 'Custom' preset to edit."},
+			}
 		}
-		return "Binaural Beat: Left/Right adjusts detuning gap by 0.5 Hz."
+		return []ui.KeyHintPair{
+			{Key: "Binaural Beat", Desc: "Left/Right adjusts detuning gap by 0.5 Hz."},
+		}
 	case settingsFadeIn:
-		return "Fade-in duration: Left/Right or Space adjusts the speed (ms)."
+		return []ui.KeyHintPair{
+			{Key: "Fade-in duration", Desc: "Left/Right or Space adjusts the speed (ms)."},
+		}
 	case settingsFadeOut:
-		return "Fade-out duration: Left/Right or Space adjusts the speed (ms)."
+		return []ui.KeyHintPair{
+			{Key: "Fade-out duration", Desc: "Left/Right or Space adjusts the speed (ms)."},
+		}
 	case settingsBackup:
-		return "Backup: Enter writes a project snapshot to backup.json."
+		return []ui.KeyHintPair{
+			{Key: "Backup", Desc: "Enter writes a project snapshot to backup.json."},
+		}
 	case settingsRestore:
-		return "Restore: Enter loads backup.json and overwrites local project files."
+		return []ui.KeyHintPair{
+			{Key: "Restore", Desc: "Enter loads backup.json and overwrites local project files."},
+		}
 	case settingsClearOutbox:
-		return "Outbox: Enter clears the notification retry queue."
+		return []ui.KeyHintPair{
+			{Key: "Outbox", Desc: "Enter clears the notification retry queue."},
+		}
 	default:
-		return "Use Tab to move between sections."
+		return []ui.KeyHintPair{
+			{Key: "Navigation", Desc: "Use Tab to move between sections."},
+		}
 	}
 }
 
-func renderSettingLine(selected bool, label, value string) string {
-	prefix := "  "
+func renderSettingLine(selected bool, label, value string, theme config.ThemeStyle) string {
+	line := fmt.Sprintf("  %-22s %s", label, value)
 	if selected {
-		prefix = "> "
+		return lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.Accent)).
+			Foreground(lipgloss.Color("0")). // black text
+			Bold(true).
+			Render(line)
 	}
-	return fmt.Sprintf("%s%-22s %s", prefix, label, value)
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.Primary)).
+		Render(line)
 }
 
 func boolLabel(enabled bool) string {
@@ -175,18 +215,10 @@ func hourLabel(hour int) string {
 	return fmt.Sprintf("%02d:00", hour)
 }
 
-func renderVolumeBar(vol float64) string {
-	pct := int(vol * 100)
-	filled := int(vol * 10)
-	bar := ""
-	for i := 0; i < 10; i++ {
-		if i < filled {
-			bar += "█"
-		} else {
-			bar += "░"
-		}
-	}
-	return fmt.Sprintf("[%s] %d%%", bar, pct)
+func renderVolumeBar(vol float64, theme config.ThemeStyle) string {
+	pct := vol * 100
+	bar := ui.ProgressBar(pct, 10, theme.Accent, theme.Primary)
+	return fmt.Sprintf("[%s] %d%%", bar, int(pct))
 }
 
 func binauralPresetLabel(preset string) string {

@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"kairu-tui/internal/config"
+	"kairu-tui/internal/ui"
 )
 
 func themedStyle(cfg config.Config, color string) lipgloss.Style {
@@ -49,11 +50,11 @@ func renderAppError(m model) string {
 	return themedStyle(m.config, activeTheme(m.config).Warning).Render(m.appError)
 }
 
-func renderNotificationStatus(m model) string {
+func renderNotificationStatus(m model, width int) string {
 	if strings.TrimSpace(m.notificationStatus) == "" {
 		return ""
 	}
-	return themedStyle(m.config, activeTheme(m.config).Primary).Render(m.notificationStatus)
+	return ui.Toast(m.notificationStatus, activeTheme(m.config), width)
 }
 
 func centerBlock(width int, content string) string {

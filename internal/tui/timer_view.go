@@ -10,29 +10,25 @@ import (
 	"kairu-tui/internal/config"
 	"kairu-tui/internal/pet"
 	"kairu-tui/internal/timer"
+	"kairu-tui/internal/ui"
 )
 
 func renderEditView(m model) string {
+	theme := activeTheme(m.config)
 	errorLine := ""
 	if m.inputError != "" {
-		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.inputError)
+		errorLine = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warning)).Render(m.inputError)
 	}
 	errorBlock := joinNonEmptyLines(errorLine, renderAppError(m))
 	elapsed := timer.FormatClock(m.sessionElapsed)
-	block := fmt.Sprintf(`%s
 
-╭─────────────────────────────────────╮
-│  ✏️  Adjust Session Time           │
-╰─────────────────────────────────────╯
+	formWidth := 46
+	body := fmt.Sprintf("Task: %s\nElapsed: %s\n\n%s", m.taskName, elapsed, m.durationInput.View())
 
-Task: %s
-Elapsed: %s
+	editCard := ui.Panel("✏️ Adjust Session Time", body, theme, formWidth, lipgloss.RoundedBorder(), theme.Primary)
+	statusBar := ui.StatusBar([]string{"[Enter] Apply", "[Esc] Cancel", "[?] Help", "[q] Quit"}, errorBlock, theme, formWidth)
 
-%s
-
-%s
-
-	[Enter] Apply   [Esc] Cancel   [?] Help   [q] Quit`, renderBanner(m.config), m.taskName, elapsed, m.durationInput.View(), errorBlock)
+	block := renderBanner(m.config) + "\n\n" + editCard + "\n\n" + statusBar
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
@@ -46,7 +42,7 @@ func renderTimerView(m model) string {
 		modeStr = "BREAK"
 	}
 
-	// Progress bar
+	// Progress bar - unified ui.ProgressBar
 	targetSeconds := m.sessionTarget
 	if targetSeconds <= 0 {
 		targetSeconds = 1
@@ -58,101 +54,103 @@ func renderTimerView(m model) string {
 	if remainingPct < 0 {
 		remainingPct = 0
 	}
-	barWidth := 40
-	filled := int(remainingPct / 100 * float64(barWidth))
-	empty := barWidth - filled
-	progress := fmt.Sprintf("[%s%s] %.0f%%", strings.Repeat("█", filled), strings.Repeat("░", empty), remainingPct)
+	progress := fmt.Sprintf("%s %.0f%%", ui.ProgressBar(remainingPct, 28, theme.Primary, theme.Notice), remainingPct)
 
 	petHint := ""
 	if m.petEnabled {
-		petHint = "  [Ctrl+G] Pet"
+		petHint = "[Ctrl+G] Pet"
 	}
-	hint := "[Space] Pause  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+B] Soundscapes  [?] Help" + petHint
+	shortcuts := []string{"[Space] Pause", "[E] Edit", "[Enter] End", "[Tab] Stats", "[S] Settings", "[Ctrl+B] Soundscapes", "[?] Help"}
+	if petHint != "" {
+		shortcuts = append(shortcuts, petHint)
+	}
 	if m.guardianLocked {
-		hint += "  [Esc] Abort"
+		shortcuts = append(shortcuts, "[Esc] Abort")
 	} else {
-		hint += "  [q] Quit"
+		shortcuts = append(shortcuts, "[q] Quit")
 	}
 	if !m.running {
-		hint = "[Space] Resume  [E] Edit  [Enter] End  [Tab] Stats  [S] Settings  [Ctrl+B] Soundscapes  [?] Help" + petHint
-		if m.guardianLocked {
-			hint += "  [Esc] Abort"
-		} else {
-			hint += "  [q] Quit"
-		}
+		shortcuts[0] = "[Space] Resume"
 	}
 
-	header := fmt.Sprintf("%s • %s", modeStr, m.taskName)
+	// Header text - Structured badges row
+	var headerParts []string
+	modeBadge := ui.Badge(modeStr, theme, m.mode == "work")
+	headerParts = append(headerParts, modeBadge)
+
+	taskNameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true)
+	taskNameStr := taskNameStyle.Render(" " + m.taskName + " ")
 	if m.guardianLocked {
-		header = "🔒 Guardian Active • " + header
+		taskNameStr = "🔒 " + taskNameStr
 	}
+	headerParts = append(headerParts, taskNameStr)
+
 	if tags := strings.Join(m.currentSessionTags(), ", "); tags != "" {
-		header += fmt.Sprintf(" [%s]", tags)
+		headerParts = append(headerParts, ui.Badge("🏷️ "+tags, theme, false))
 	}
+
 	if m.streakState.Current > 0 {
-		header += fmt.Sprintf("  🔥%d", m.streakState.Current)
+		headerParts = append(headerParts, ui.Badge(fmt.Sprintf("🔥 %d", m.streakState.Current), theme, true))
 	} else if m.streakState.RecoveryAvailable {
-		header += "  ✦ recoverable"
+		headerParts = append(headerParts, ui.Badge("✦ recoverable", theme, false))
 	} else if m.streakState.RecoveryNeeded {
-		header += "  ◌ rebuild"
+		headerParts = append(headerParts, ui.Badge("◌ rebuild", theme, false))
 	}
+
 	if m.activeSoundscapeCmd != nil && m.soundscapeIndex >= 0 && m.soundscapeIndex < len(m.soundscapes) {
 		track := strings.TrimSuffix(m.soundscapes[m.soundscapeIndex], filepath.Ext(m.soundscapes[m.soundscapeIndex]))
-		header += fmt.Sprintf("  🎵 %s", track)
+		headerParts = append(headerParts, ui.Badge("🎵 "+track, theme, true))
 	}
 
+	headerRow := lipgloss.JoinHorizontal(lipgloss.Center, headerParts...)
+
+	formWidth := 46
 	errorLine := renderAppError(m)
-	statusLine := renderNotificationStatus(m)
-	details := hint
-	if errorLine != "" {
-		details = fmt.Sprintf("%s\n%s", errorLine, hint)
-	}
-	if statusLine != "" {
-		details = fmt.Sprintf("%s\n%s", details, statusLine)
-	}
+	statusLine := renderNotificationStatus(m, formWidth)
 
-	var block string
+	var mainFrame string
+
 	switch layout {
 	case "minimal":
 		timerLine := themedStyle(m.config, theme.Accent).Bold(true).Render(timeStr)
-		block = fmt.Sprintf("%s\n\n%s  %s\n\n%s", header, timerLine, progress, details)
+		mainFrame = fmt.Sprintf("%s\n\n%s  %s", headerRow, timerLine, progress)
 	case "compact":
-		timerFrame := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			Padding(0, 1).
-			Render(fmt.Sprintf("%s  %s", themedStyle(m.config, theme.Accent).Bold(true).Render(timeStr), progress))
-		block = fmt.Sprintf("%s\n\n%s\n\n%s", header, timerFrame, details)
+		timerFrame := ui.Panel("", fmt.Sprintf("%s  %s", themedStyle(m.config, theme.Accent).Bold(true).Render(timeStr), progress), theme, formWidth, lipgloss.RoundedBorder(), theme.Primary)
+		mainFrame = fmt.Sprintf("%s\n\n%s", headerRow, timerFrame)
 	default: // classic
 		ascii := renderASCIITimer(timeStr, m.config)
-		innerWidth := lipgloss.Width(progress)
-		if asciiWidth := lipgloss.Width(ascii); asciiWidth > innerWidth {
-			innerWidth = asciiWidth
+		// Constrain ASCII timer to width-4. Overflow triggers a compact fallback.
+		if lipgloss.Width(ascii) > 42 || m.width < 48 {
+			ascii = themedStyle(m.config, theme.Accent).Bold(true).Render("⏰ " + timeStr)
+		} else {
+			ascii = themedStyle(m.config, theme.Accent).Width(42).Align(lipgloss.Center).Render(ascii)
 		}
-		ascii = themedStyle(m.config, theme.Accent).Width(innerWidth).Align(lipgloss.Center).Render(ascii)
-		timerFrame := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			Padding(0, 1).
-			Render(fmt.Sprintf("%s\n\n%s", ascii, progress))
-		block = fmt.Sprintf("%s\n\n%s\n\n%s", header, timerFrame, details)
+		timerFrame := ui.Panel("", fmt.Sprintf("%s\n\n%s", ascii, progress), theme, formWidth, lipgloss.RoundedBorder(), theme.Primary)
+		mainFrame = fmt.Sprintf("%s\n\n%s", headerRow, timerFrame)
+	}
+
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, formWidth)
+	var fullBlock string
+	if statusLine != "" {
+		fullBlock = mainFrame + "\n\n" + statusLine + "\n\n" + statusBar
+	} else {
+		fullBlock = mainFrame + "\n\n" + statusBar
 	}
 
 	if m.petEnabled && m.showPetSidebar && m.width >= 90 {
 		m.petState.UpdateMood(m.running, m.mode, m.sessionStart)
-		petBox := pet.RenderPetBox(m.petState, m.width)
+		petBox := pet.RenderPetBox(m.petState, m.width, theme)
 
-		timerFrame := lipgloss.NewStyle().Padding(0, 1).Render(block)
+		timerFrame := lipgloss.NewStyle().Padding(0, 1).Render(fullBlock)
 
-		petFrame := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color(theme.Primary)).
-			Padding(0, 1).
-			Render(petBox)
+		// Styled pet sidebar matching the main panel container style
+		petFrame := ui.Panel("", petBox, theme, 36, lipgloss.RoundedBorder(), theme.Primary)
 
 		joinedBlock := lipgloss.JoinHorizontal(lipgloss.Center, timerFrame, petFrame)
 		return fmt.Sprintf("\n%s\n", centerBlock(m.width, joinedBlock))
 	}
 
-	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, fullBlock))
 }
 
 func renderASCIITimer(timeStr string, cfg config.Config) string {

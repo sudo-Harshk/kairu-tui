@@ -69,6 +69,7 @@ type model struct {
 	inputError          string
 	appError            string
 	notificationStatus  string
+	notificationCounter int
 	lastDeletedTemplate *deletedTemplateState
 	taskName            string
 	taskSuggestions     []string
@@ -161,13 +162,13 @@ func New(paths config.Paths) tea.Model {
 	ti.Placeholder = "Task name"
 	ti.CharLimit = 50
 	ti.Width = 40
-	ti.Prompt = "Task: "
+	ti.Prompt = "> "
 
 	di := textinput.New()
 	di.Placeholder = "25"
 	di.CharLimit = 8
 	di.Width = 16
-	di.Prompt = "Duration (mm or hh:mm): "
+	di.Prompt = "> "
 	di.SetValue(fmt.Sprintf("%d", cfg.WorkDuration))
 	di.Blur()
 
@@ -175,14 +176,14 @@ func New(paths config.Paths) tea.Model {
 	ni.Placeholder = "Optional note"
 	ni.CharLimit = 120
 	ni.Width = 40
-	ni.Prompt = "Note: "
+	ni.Prompt = "> "
 	ni.Blur()
 
 	gi := textinput.New()
 	gi.Placeholder = "Optional tags, comma separated"
 	gi.CharLimit = 120
 	gi.Width = 40
-	gi.Prompt = "Tags: "
+	gi.Prompt = "> "
 	gi.Blur()
 
 	var entryList []entries.Entry

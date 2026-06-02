@@ -5,14 +5,13 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"kairu-tui/internal/ui"
 )
 
 func renderHelpView(m model) string {
-	footer := "[?] Close   [Esc] Close   [q] Quit"
+	theme := activeTheme(m.config)
 	errorLine := renderAppError(m)
-	if errorLine != "" {
-		footer = fmt.Sprintf("%s\n%s", errorLine, footer)
-	}
 	lines := []string{
 		"Timer continues while help is open.",
 		"",
@@ -44,34 +43,30 @@ func renderHelpView(m model) string {
 		formatHelpLine("R", "Daily report"),
 		formatHelpLine("S", "Settings"),
 		formatHelpLine("L", "Internal logs"),
-		"",
 	}
-	body := lipgloss.NewStyle().Width(35).Render(strings.Join(lines, "\n"))
-	block := fmt.Sprintf(`%s
+	body := strings.Join(lines, "\n")
 
-╭─────────────────────────────────────╮
-│  Help                               │
-╰─────────────────────────────────────╯
+	formWidth := 46
+	helpCard := ui.Panel("📖 Help Guidelines", body, theme, formWidth, lipgloss.RoundedBorder(), theme.Primary)
 
-%s
+	shortcuts := []string{"[?] Close", "[Esc] Close", "[q] Quit"}
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, formWidth)
 
-%s`, renderBanner(m.config), body, footer)
+	block := helpCard + "\n\n" + statusBar
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
 
 func renderFatalView(m model) string {
+	theme := activeTheme(m.config)
 	message := strings.TrimSpace(m.appError)
 	if message == "" {
 		message = "Failed to start due to an unexpected error."
 	}
-	block := fmt.Sprintf(`%s
 
-╭─────────────────────────────────────╮
-│  Startup Error                      │
-╰─────────────────────────────────────╯
+	formWidth := 46
+	errorCard := ui.Panel("❌ Startup Error", message, theme, formWidth, lipgloss.DoubleBorder(), theme.Warning)
+	statusBar := ui.StatusBar([]string{"[q] Quit"}, "", theme, formWidth)
 
-%s
-
-[q] Quit`, renderBanner(m.config), message)
+	block := errorCard + "\n\n" + statusBar
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }

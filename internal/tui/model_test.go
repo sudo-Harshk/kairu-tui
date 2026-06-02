@@ -9,11 +9,13 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"kairu-tui/internal/config"
 	"kairu-tui/internal/entries"
 	"kairu-tui/internal/notification"
 	"kairu-tui/internal/templates"
+	"kairu-tui/internal/ui"
 )
 
 func TestRenderStreakHistoryChart(t *testing.T) {
@@ -48,7 +50,7 @@ func TestRenderHistoryView(t *testing.T) {
 	}
 
 	got := renderHistoryView(m)
-	if !strings.Contains(got, "Recent Sessions by Day:") {
+	if !strings.Contains(got, "📜 Focus History") {
 		t.Fatalf("expected timeline header, got %q", got)
 	}
 	first := strings.Index(got, "Review PR")
@@ -461,7 +463,7 @@ func TestVisualAnalyticsRendering(t *testing.T) {
 	})
 
 	t.Run("DashboardCard", func(t *testing.T) {
-		got := renderDashboardCard("Card Title", "Card Content", theme, 30)
+		got := ui.Panel("Card Title", "Card Content", theme, 30, lipgloss.RoundedBorder(), theme.Primary)
 		if !strings.Contains(got, "Card Title") || !strings.Contains(got, "Card Content") {
 			t.Fatalf("expected card title and content: %q", got)
 		}
