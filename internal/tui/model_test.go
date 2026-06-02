@@ -70,6 +70,49 @@ func TestRenderHistoryView(t *testing.T) {
 	}
 }
 
+func TestRenderHistoryViewWithFilters(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	loc := now.Location()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 8, 0, 0, 0, loc)
+	yesterday := today.AddDate(0, 0, -1)
+
+	si := textinput.New()
+	si.SetValue("Write")
+
+	m := model{
+		entries: []entries.Entry{
+			{Task: "Review PR", Start: today.Add(2 * time.Hour), End: today.Add(2*time.Hour + 10*time.Minute), Duration: 600, Type: "break"},
+			{Task: "Write docs", Start: today, End: today.Add(25 * time.Minute), Duration: 1500, Type: "work", Note: "draft", Tags: []string{"docs"}},
+			{Task: "Plan sprint", Start: yesterday, End: yesterday.Add(40 * time.Minute), Duration: 2400, Type: "work"},
+		},
+		historyFilter: historyFilterState{
+			searchInput:   si,
+			typeFilter:    "work",
+			dateRange:     "today",
+			searchFocused: false,
+		},
+	}
+
+	got := renderHistoryView(m)
+	if !strings.Contains(got, "📜 Focus History") {
+		t.Fatalf("expected timeline header, got %q", got)
+	}
+
+	// Should contain "Write docs" but NOT "Plan sprint" (yesterday) and NOT "Review PR" (type break)
+	if !strings.Contains(got, "Write docs") {
+		t.Error("expected 'Write docs' in filtered history view")
+	}
+	if strings.Contains(got, "Plan sprint") {
+		t.Error("did not expect 'Plan sprint' in filtered history view")
+	}
+	if strings.Contains(got, "Review PR") {
+		t.Error("did not expect 'Review PR' in filtered history view")
+	}
+}
+
+
 func TestRenderAnalyticsView(t *testing.T) {
 	t.Parallel()
 

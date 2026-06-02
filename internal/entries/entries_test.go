@@ -65,3 +65,117 @@ func TestMergeEntriesDedup(t *testing.T) {
 		t.Fatalf("merged entries missing expected items")
 	}
 }
+
+func TestFilterEntries(t *testing.T) {
+	t.Parallel()
+
+	baseTime := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	testEntries := []Entry{
+		{
+			Task:     "Quarterly review",
+			Note:     "Reviewing Q1 performance",
+			Tags:     []string{"work", "meeting"},
+			Start:    baseTime,
+			End:      baseTime.Add(25 * time.Minute),
+			Duration: 1500,
+			Type:     "work",
+		},
+		{
+			Task:     "Quick Coffee Break",
+			Note:     "Relaxing",
+			Tags:     []string{"break", "coffee"},
+			Start:    baseTime.Add(1 * time.Hour),
+			End:      baseTime.Add(1*time.Hour + 5*time.Minute),
+			Duration: 300,
+			Type:     "break",
+		},
+		{
+			Task:     "Refactoring paths",
+			Note:     "Adding XDG paths support",
+			Tags:     []string{"dev", "go"},
+			Start:    baseTime.Add(2 * time.Hour),
+			End:      baseTime.Add(2*time.Hour + 45*time.Minute),
+			Duration: 2700,
+			Type:     "work",
+		},
+	}
+
+	tests := []struct {
+		name     string
+		opt      FilterOption
+		expected int
+	}{
+		{
+			name:     "no filter (empty opt)",
+			opt:      FilterOption{},
+			expected: 3,
+		},
+		{
+			name:     "query case-insensitive task match",
+			opt:      FilterOption{Query: "quarterly"},
+			expected: 1,
+		},
+		{
+			name:     "query case-insensitive note match",
+			opt:      FilterOption{Query: "xdg"},
+			expected: 1,
+		},
+		{
+			name:     "query no match",
+			opt:      FilterOption{Query: "nonexistent"},
+			expected: 0,
+		},
+		{
+			name:     "date range inclusive from start",
+			opt:      FilterOption{DateFrom: baseTime.Add(30 * time.Minute)},
+			expected: 2,
+		},
+		{
+			name:     "date range inclusive to end",
+			opt:      FilterOption{DateTo: baseTime.Add(90 * time.Minute)},
+			expected: 2,
+		},
+		{
+			name:     "type filter work",
+			opt:      FilterOption{Type: "work"},
+			expected: 2,
+		},
+		{
+			name:     "type filter break",
+			opt:      FilterOption{Type: "break"},
+			expected: 1,
+		},
+		{
+			name:     "type filter all",
+			opt:      FilterOption{Type: "all"},
+			expected: 3,
+		},
+		{
+			name:     "tags filter match single tag",
+			opt:      FilterOption{Tags: []string{"coffee"}},
+			expected: 1,
+		},
+		{
+			name:     "tags filter match multi tag",
+			opt:      FilterOption{Tags: []string{"meeting", "go"}},
+			expected: 2,
+		},
+		{
+			name:     "tags filter no match",
+			opt:      FilterOption{Tags: []string{"rust"}},
+			expected: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := FilterEntries(testEntries, tc.opt)
+			if len(got) != tc.expected {
+				t.Errorf("expected %d entries, got %d", tc.expected, len(got))
+			}
+		})
+	}
+}
+

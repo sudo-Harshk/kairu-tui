@@ -16,27 +16,99 @@ import (
 )
 
 func renderHistoryView(m model) string {
-	entryList := make([]entries.Entry, len(m.entries))
-	copy(entryList, m.entries)
-	sort.Slice(entryList, func(i, j int) bool {
-		if entryList[i].Start.Equal(entryList[j].Start) {
-			return entryList[i].End.After(entryList[j].End)
+	theme := activeTheme(m.config)
+
+	// Determine date bounds based on historyFilter.dateRange
+	var dateFrom, dateTo time.Time
+	now := time.Now()
+	switch m.historyFilter.dateRange {
+	case "today":
+		dateFrom = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		dateTo = time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location())
+	case "week":
+		offset := int(now.Weekday()) - 1
+		if offset < 0 {
+			offset = 6
 		}
-		return entryList[i].Start.After(entryList[j].Start)
+		monday := now.AddDate(0, 0, -offset)
+		dateFrom = time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, now.Location())
+		sunday := monday.AddDate(0, 0, 6)
+		dateTo = time.Date(sunday.Year(), sunday.Month(), sunday.Day(), 23, 59, 59, 999999999, now.Location())
+	case "month":
+		dateFrom = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		nextMonth := dateFrom.AddDate(0, 1, 0)
+		dateTo = nextMonth.Add(-time.Nanosecond)
+	}
+
+	// Filter entries
+	opt := entries.FilterOption{
+		Query:    m.historyFilter.searchInput.Value(),
+		DateFrom: dateFrom,
+		DateTo:   dateTo,
+		Type:     m.historyFilter.typeFilter,
+	}
+	filtered := entries.FilterEntries(m.entries, opt)
+
+	// Sort filtered entries by Start time descending
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].Start.Equal(filtered[j].Start) {
+			return filtered[i].End.After(filtered[j].End)
+		}
+		return filtered[i].Start.After(filtered[j].Start)
 	})
 
-	var lines []string
-	if len(entryList) == 0 {
-		lines = append(lines, "  No sessions recorded yet.")
+	// Construct card/view widths
+	cardWidth := 76
+	if m.width > 0 && m.width < 82 {
+		cardWidth = m.width - 6
+	}
+	if cardWidth < 40 {
+		cardWidth = 40
+	}
+
+	// Render the Search Input view inside a FormField
+	searchView := ui.FormField("[/] Search", m.historyFilter.searchInput.View(), m.historyFilter.searchFocused, theme)
+
+	// Construct Badges for Type and Range
+	typeLabel := "All"
+	if m.historyFilter.typeFilter == "work" {
+		typeLabel = "Work"
+	} else if m.historyFilter.typeFilter == "break" {
+		typeLabel = "Break"
+	}
+	typeBadge := ui.Badge(typeLabel, theme, m.historyFilter.typeFilter != "all")
+
+	rangeLabel := "All Time"
+	if m.historyFilter.dateRange == "today" {
+		rangeLabel = "Today"
+	} else if m.historyFilter.dateRange == "week" {
+		rangeLabel = "This Week"
+	} else if m.historyFilter.dateRange == "month" {
+		rangeLabel = "This Month"
+	}
+	rangeBadge := ui.Badge(rangeLabel, theme, m.historyFilter.dateRange != "all")
+
+	tHint := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true).Render("[t]")
+	dHint := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true).Render("[d]")
+	filterLine := fmt.Sprintf("  %s Type: %s    %s Range: %s", tHint, typeBadge, dHint, rangeBadge)
+
+	// Counts and duration
+	filteredDuration := 0
+	for _, entry := range filtered {
+		filteredDuration += entry.Duration
+	}
+	summaryStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice)).Italic(true)
+	summaryText := fmt.Sprintf("  Showing %d of %d sessions  (%s filtered)",
+		len(filtered), len(m.entries), streak.FormatDuration(filteredDuration))
+
+	// Group sessions by day and print
+	var sessionLines []string
+	if len(filtered) == 0 {
+		sessionLines = append(sessionLines, "  No matching sessions found.")
 	} else {
-		limit := 15
-		if len(entryList) < limit {
-			limit = len(entryList)
-		}
 		grouped := make(map[string][]entries.Entry)
-		order := make([]string, 0, len(entryList))
-		for i := 0; i < limit; i++ {
-			entry := entryList[i]
+		order := make([]string, 0)
+		for _, entry := range filtered {
 			key := streak.DateKey(entry.Start)
 			if _, ok := grouped[key]; !ok {
 				order = append(order, key)
@@ -51,7 +123,8 @@ func renderHistoryView(m model) string {
 			for _, entry := range groupEntries {
 				dayTotal += entry.Duration
 			}
-			lines = append(lines, fmt.Sprintf("  %s  (%d sessions, %s)", dayLabel, len(groupEntries), streak.FormatDuration(dayTotal)))
+			sessionLines = append(sessionLines, fmt.Sprintf("  %s  (%d sessions, %s)",
+				dayLabel, len(groupEntries), streak.FormatDuration(dayTotal)))
 			for _, entry := range groupEntries {
 				kind := strings.ToUpper(strings.TrimSpace(entry.Type))
 				if kind == "" {
@@ -69,28 +142,27 @@ func renderHistoryView(m model) string {
 				if len(entry.Tags) > 0 {
 					meta = append(meta, "tags: "+strings.Join(entry.Tags, ", "))
 				}
-				lines = append(lines, fmt.Sprintf("    - %-18s %s", task, strings.Join(meta, " | ")))
+				sessionLines = append(sessionLines, fmt.Sprintf("    - %-18s %s", task, strings.Join(meta, " | ")))
 			}
-			lines = append(lines, "")
-		}
-		if len(entryList) > limit {
-			lines = append(lines, fmt.Sprintf("  ... and %d more sessions", len(entryList)-limit))
+			sessionLines = append(sessionLines, "")
 		}
 	}
 
-	theme := activeTheme(m.config)
-	cardWidth := 76
-	if m.width > 0 && m.width < 82 {
-		cardWidth = m.width - 6
-	}
-	if cardWidth < 40 {
-		cardWidth = 40
-	}
+	var panelContentParts []string
+	panelContentParts = append(panelContentParts, "  "+searchView)
+	panelContentParts = append(panelContentParts, "")
+	panelContentParts = append(panelContentParts, filterLine)
+	panelContentParts = append(panelContentParts, "")
+	panelContentParts = append(panelContentParts, summaryStyle.Render(summaryText))
+	panelContentParts = append(panelContentParts, "")
+	panelContentParts = append(panelContentParts, ui.Divider(cardWidth-4, theme))
+	panelContentParts = append(panelContentParts, "")
+	panelContentParts = append(panelContentParts, strings.Join(sessionLines, "\n"))
 
 	tabs := renderStatsTabs("history", m.config)
-	historyCard := ui.Panel("📜 Focus History", strings.Join(lines, "\n"), theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
+	historyCard := ui.Panel("📜 Focus History", strings.Join(panelContentParts, "\n"), theme, cardWidth, lipgloss.RoundedBorder(), theme.Primary)
 
-	shortcuts := []string{"[Tab] Cycle Views", "[S] Settings", "[?] Help", "[q] Quit"}
+	shortcuts := []string{"[/] Search", "[t] Type", "[d] Range", "[Esc] Clear/Back", "[Tab] Cycle Views", "[S] Settings", "[?] Help", "[q] Quit"}
 	errorLine := renderAppError(m)
 	statusBar := ui.StatusBar(shortcuts, errorLine, theme, cardWidth)
 

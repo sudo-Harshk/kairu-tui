@@ -62,3 +62,66 @@ func EntryKey(entry Entry) string {
 		entry.Type,
 	)
 }
+
+// FilterOption defines filter parameters for session history
+type FilterOption struct {
+	Query    string    // search task/note text
+	DateFrom time.Time // start of date range
+	DateTo   time.Time // end of date range  
+	Type     string    // "all", "work", "break"
+	Tags     []string  // match any of these tags
+}
+
+// FilterEntries filters a slice of Entry based on the given FilterOption
+func FilterEntries(entries []Entry, opt FilterOption) []Entry {
+	var filtered []Entry
+	for _, entry := range entries {
+		// Case-insensitive substring match against Task and Note
+		if opt.Query != "" {
+			q := strings.ToLower(opt.Query)
+			taskMatch := strings.Contains(strings.ToLower(entry.Task), q)
+			noteMatch := strings.Contains(strings.ToLower(entry.Note), q)
+			if !taskMatch && !noteMatch {
+				continue
+			}
+		}
+
+		// DateFrom/DateTo range (inclusive)
+		if !opt.DateFrom.IsZero() && entry.Start.Before(opt.DateFrom) {
+			continue
+		}
+		if !opt.DateTo.IsZero() && entry.Start.After(opt.DateTo) {
+			continue
+		}
+
+		// Type filtering
+		if opt.Type != "" && opt.Type != "all" {
+			if entry.Type != opt.Type {
+				continue
+			}
+		}
+
+		// Tags filtering (matches if any entry tag appears in the filter list)
+		if len(opt.Tags) > 0 {
+			match := false
+			for _, et := range entry.Tags {
+				for _, ft := range opt.Tags {
+					if strings.EqualFold(et, ft) {
+						match = true
+						break
+					}
+				}
+				if match {
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+

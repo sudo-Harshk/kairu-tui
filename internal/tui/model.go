@@ -45,6 +45,13 @@ type deletedTemplateState struct {
 	expiresAt time.Time
 }
 
+type historyFilterState struct {
+	searchFocused bool
+	searchInput   textinput.Model
+	typeFilter    string // "all", "work", "break"
+	dateRange     string // "all", "today", "week", "month"
+}
+
 type model struct {
 	seconds             int
 	sessionTarget       int
@@ -115,6 +122,7 @@ type model struct {
 	typingGame             pet.TypingGameState
 	binaryGame             pet.BinaryGameState
 	kairuType              kairutype.KairuTypeState
+	historyFilter          historyFilterState
 }
 
 func tickCmd() tea.Cmd {
@@ -234,6 +242,13 @@ func New(paths config.Paths) tea.Model {
 	soundscapesList, _ := soundscape.LoadSoundscapes(cfg.SoundscapesDir)
 	fileTasks := tasks.LoadTasksFromFile(cfg.TasksFile)
 
+	si := textinput.New()
+	si.Placeholder = "Search task/note..."
+	si.CharLimit = 50
+	si.Width = 30
+	si.Prompt = "> "
+	si.Blur()
+
 	m := model{
 		mode:                  mode,
 		textInput:             ti,
@@ -265,6 +280,12 @@ func New(paths config.Paths) tea.Model {
 		tamagotchiMenuSelect:  0,
 		tamagotchiFeedback:    "",
 		kairuType:             kairutype.InitKairuType("time", 30),
+		historyFilter: historyFilterState{
+			searchFocused: false,
+			searchInput:   si,
+			typeFilter:    "all",
+			dateRange:     "all",
+		},
 	}
 	m.logInternal("SYSTEM: Kairu TUI started")
 	m = m.setInputFocus(initialFocus)

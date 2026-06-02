@@ -320,6 +320,73 @@ func (m model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.mode == "history" {
+			if m.historyFilter.searchFocused {
+				if key == "ctrl+c" {
+					m.saveOnQuit()
+					return m, tea.Quit
+				}
+				if key == "esc" {
+					m.historyFilter.searchInput.SetValue("")
+					m.historyFilter.searchInput.Blur()
+					m.historyFilter.searchFocused = false
+					m.historyFilter.typeFilter = "all"
+					m.historyFilter.dateRange = "all"
+					return m, nil
+				}
+				if key == "enter" {
+					m.historyFilter.searchInput.Blur()
+					m.historyFilter.searchFocused = false
+					return m, nil
+				}
+				if key == "/" {
+					m.historyFilter.searchInput.Blur()
+					m.historyFilter.searchFocused = false
+					return m, nil
+				}
+				var textCmd tea.Cmd
+				m.historyFilter.searchInput, textCmd = m.historyFilter.searchInput.Update(msg)
+				return m, textCmd
+			}
+
+			switch key {
+			case "/":
+				m.historyFilter.searchInput.Focus()
+				m.historyFilter.searchFocused = true
+				return m, nil
+			case "t":
+				switch m.historyFilter.typeFilter {
+				case "all":
+					m.historyFilter.typeFilter = "work"
+				case "work":
+					m.historyFilter.typeFilter = "break"
+				default:
+					m.historyFilter.typeFilter = "all"
+				}
+				return m, nil
+			case "d":
+				switch m.historyFilter.dateRange {
+				case "all":
+					m.historyFilter.dateRange = "today"
+				case "today":
+					m.historyFilter.dateRange = "week"
+				case "week":
+					m.historyFilter.dateRange = "month"
+				default:
+					m.historyFilter.dateRange = "all"
+				}
+				return m, nil
+			case "esc":
+				if m.historyFilter.searchInput.Value() != "" || m.historyFilter.typeFilter != "all" || m.historyFilter.dateRange != "all" {
+					m.historyFilter.searchInput.SetValue("")
+					m.historyFilter.typeFilter = "all"
+					m.historyFilter.dateRange = "all"
+					return m, nil
+				}
+				// Otherwise fall through to general esc handling to exit history view.
+			}
+		}
+
 		if m.mode == "kairu_type" {
 			sessionMode := m.activeSessionMode()
 			if m.kairuType.Finished {
