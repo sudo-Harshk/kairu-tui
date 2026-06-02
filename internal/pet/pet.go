@@ -1,4 +1,4 @@
-package main
+package pet
 
 import (
 	"encoding/json"
@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // PetState represents the persistent status of the companion
@@ -816,7 +818,7 @@ func RenderPetBox(pet PetState, width int) string {
 		xpBar,
 		int(pct*100),
 		stageName,
-		strings.Title(pet.Mood),
+		cases.Title(language.English).String(pet.Mood),
 		pet.TotalSessionsFed,
 	)
 
@@ -1152,5 +1154,12 @@ func renderMainButtonsGrid(options []string, selected int, width int, color stri
 	
 	rows = append(rows, subtle.Render("   [↑/↓/←/→] Navigate Grid  [Enter] Press Button  [Esc] Exit"))
 	return strings.Join(rows, "\n")
+}
+
+func centerBlock(width int, content string) string {
+	if width <= 0 {
+		return content
+	}
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(content)
 }
 

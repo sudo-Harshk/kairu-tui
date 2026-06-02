@@ -1,4 +1,4 @@
-package main
+package pet
 
 import (
 	"fmt"
@@ -44,7 +44,6 @@ type BinaryGameState struct {
 
 // InitTypingGame starts a typing challenge
 func InitTypingGame() TypingGameState {
-	rand.Seed(time.Now().UnixNano())
 	quote := HackerQuotes[rand.Intn(len(HackerQuotes))]
 	return TypingGameState{
 		TargetText: quote,
@@ -56,7 +55,6 @@ func InitTypingGame() TypingGameState {
 
 // InitBinaryGame starts a higher/lower binary game
 func InitBinaryGame() BinaryGameState {
-	rand.Seed(time.Now().UnixNano())
 	target := rand.Intn(14) + 2 // Number between 2 and 15
 	return BinaryGameState{
 		TargetNum: target,

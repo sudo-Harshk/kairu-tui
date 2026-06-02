@@ -1,4 +1,4 @@
-package main
+package kairutype
 
 import (
 	"encoding/json"
@@ -108,8 +108,6 @@ func (s *KairuTypeState) ResetTest() {
 	s.WPMHistory = make([]int, 0)
 	s.TimeSamples = make([]int, 0)
 	s.TimeRemaining = s.TargetTime
-
-	rand.Seed(time.Now().UnixNano())
 
 	// Generate words based on mode
 	wordCount := s.TargetWords
@@ -609,4 +607,11 @@ func renderASCIIChart(history []int, width int, height int, color string) string
 	rows = append(rows, subtleStyle.Render(fmt.Sprintf("         0s%s%ds", strings.Repeat(" ", width-4), n)))
 
 	return strings.Join(rows, "\n")
+}
+
+func centerBlock(width int, content string) string {
+	if width <= 0 {
+		return content
+	}
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(content)
 }

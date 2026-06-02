@@ -1,4 +1,4 @@
-package main
+package soundscape
 
 import (
 	"math"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/gopxl/beep"
 	"github.com/gopxl/beep/speaker"
+	"kairu-tui/internal/config"
 )
 
 var (
@@ -24,8 +25,8 @@ var (
 	fadeDone         chan bool
 )
 
-// initSpeaker initializes the Beep speaker once.
-func initSpeaker() error {
+// InitSpeaker initializes the Beep speaker once.
+func InitSpeaker() error {
 	var err error
 	speakerInit.Do(func() {
 		// Init speaker with 44100Hz and buffer size 2048 (approx 46ms latency)
@@ -195,7 +196,7 @@ func getBinauralFrequencies(preset string, customCarrier, customBeat float64) (f
 	return carrier - beat/2.0, carrier + beat/2.0
 }
 
-func updateActiveBinauralFrequencies(cfg Config) {
+func UpdateActiveBinauralFrequencies(cfg config.Config) {
 	audioMutex.Lock()
 	defer audioMutex.Unlock()
 
@@ -209,9 +210,9 @@ func updateActiveBinauralFrequencies(cfg Config) {
 	}
 }
 
-// startNativeSynth starts playing the selected synthetic soundscape.
-func startNativeSynth(trackName string, cfg Config) error {
-	if err := initSpeaker(); err != nil {
+// StartNativeSynth starts playing the selected synthetic soundscape.
+func StartNativeSynth(trackName string, cfg config.Config) error {
+	if err := InitSpeaker(); err != nil {
 		return err
 	}
 
@@ -253,8 +254,8 @@ func startNativeSynth(trackName string, cfg Config) error {
 	return nil
 }
 
-// stopNativeSynth stops playing the native soundscape.
-func stopNativeSynth() {
+// StopNativeSynth stops playing the native soundscape.
+func StopNativeSynth() {
 	audioMutex.Lock()
 	defer audioMutex.Unlock()
 
@@ -265,8 +266,8 @@ func stopNativeSynth() {
 	}
 }
 
-// pauseNativeSynth pauses or resumes the native soundscape.
-func pauseNativeSynth(paused bool) {
+// PauseNativeSynth pauses or resumes the native soundscape.
+func PauseNativeSynth(paused bool) {
 	audioMutex.Lock()
 	defer audioMutex.Unlock()
 
@@ -275,8 +276,8 @@ func pauseNativeSynth(paused bool) {
 	}
 }
 
-// setNativeVolume sets the native synthesizer volume dynamically.
-func setNativeVolume(vol float64) {
+// SetNativeVolume sets the native synthesizer volume dynamically.
+func SetNativeVolume(vol float64) {
 	audioMutex.Lock()
 	defer audioMutex.Unlock()
 
@@ -288,8 +289,8 @@ func setNativeVolume(vol float64) {
 	synthVolume = vol
 }
 
-// fadeNativeVolume transitions volume smoothly to target over a duration.
-func fadeNativeVolume(target float64, duration time.Duration) {
+// FadeNativeVolume transitions volume smoothly to target over a duration.
+func FadeNativeVolume(target float64, duration time.Duration) {
 	audioMutex.Lock()
 	if activeCtrl == nil {
 		audioMutex.Unlock()
@@ -312,7 +313,7 @@ func fadeNativeVolume(target float64, duration time.Duration) {
 	go func() {
 		steps := int(duration / (20 * time.Millisecond))
 		if steps <= 0 {
-			setNativeVolume(target)
+			SetNativeVolume(target)
 			return
 		}
 
@@ -342,7 +343,7 @@ func fadeNativeVolume(target float64, duration time.Duration) {
 		}
 
 		// Ensure precise target value
-		setNativeVolume(target)
+		SetNativeVolume(target)
 		volumeFadeTicker.Stop()
 	}()
 }
