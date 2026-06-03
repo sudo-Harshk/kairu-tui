@@ -185,3 +185,17 @@ func renderHeatmapView(m model) string {
 %s`, renderBanner(m.config), tabs, heatmap, statusBar)
 	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
 }
+
+func renderReportView(m model) string {
+	reportStr := analytics.RenderReport(analytics.BuildWeeklyReport(m.entries))
+	tabs := renderStatsTabs("report", m.config)
+
+	theme := activeTheme(m.config)
+	shortcuts := []string{"[Tab] Cycle Views", "[S] Settings", "[?] Help", "[q] Quit"}
+	errorLine := renderAppError(m)
+	statusBar := ui.StatusBar(shortcuts, errorLine, theme, 64)
+
+	block := fmt.Sprintf("%s\n%s\n%s\n%s", renderBanner(m.config), tabs, reportStr, statusBar)
+	return fmt.Sprintf("\n%s\n", centerBlock(m.width, block))
+}
+

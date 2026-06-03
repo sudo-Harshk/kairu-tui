@@ -119,6 +119,7 @@ go build -o kairu
 ### Core Hotkeys
 - `Tab`: Switch between input fields and views.
 - `Space`: Pause or resume the active timer.
+- `r`: Open the Weekly Focus Report.
 - `Ctrl + P`: Open the Template Manager.
 - `Ctrl + B`: Toggle the Soundscape selector.
 - `Ctrl + T`: Open the interactive Cyber-Tamagotchi handheld console.
@@ -190,6 +191,15 @@ Kairu features a highly visual, theme-cohesive **Analytics** dashboard. Press `T
 - **Top Focus Tasks:** A horizontal unicode bar chart showing time allocation across your top 5 tasks, along with exact duration and percentage contribution.
 - **Top Tags & Categories:** An advanced category breakdown rendering horizontal visual progress bars based on session tags to track exactly where your time is being invested.
 - **Theme-Adaptive & Responsive:** Box borders and progress bars dynamically scale to fit your terminal width and automatically shift colors to match your current active visual theme (Forest, Cyberpunk, Matrix, etc.).
+
+### Weekly Focus Report (Spotify Wrapped for Devs)
+Kairu includes a beautiful terminal-based weekly focus report that sums up your focus sessions, calculates streaks, lists top tasks, and highlights your best hours.
+
+- **Interactive TUI View:** Press `r` from the dashboard/stats views or cycle to the "Report" tab using `Tab`.
+- **Command Line Subcommand:** Run `kairu report` or `kairu --report` directly from your shell to print the report to `stdout` and exit. This is pipeable and works without launching the TUI:
+  ```bash
+  ./kairu report
+  ```
 
 ### Kairu-Type Minimalist Typing Arena (`Ctrl + Y`)
 Kairu features a fully integrated speed-typing simulator inspired by Monkeytype, designed to help developers warm up their fingers or practice programming muscle memory.

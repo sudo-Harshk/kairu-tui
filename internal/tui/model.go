@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -138,6 +139,7 @@ type model struct {
 	sidebarEntries         []entries.Entry
 	sidebarMetrics         sidebarMetrics
 	overlayMode            bool
+	showReport             bool
 }
 
 func tickCmd() tea.Cmd {
@@ -239,9 +241,23 @@ func New(paths config.Paths) tea.Model {
 		}
 	}
 
+	showReportVal := false
+	if f := flag.Lookup("report"); f != nil {
+		if val, ok := f.Value.(flag.Getter).Get().(bool); ok {
+			showReportVal = val
+		}
+	}
+	for _, arg := range os.Args[1:] {
+		if arg == "report" {
+			showReportVal = true
+		}
+	}
+
 	mode := "input"
 	if fatalConfig {
 		mode = "fatal"
+	} else if showReportVal {
+		mode = "report"
 	}
 	streakState := streak.ComputeStreakState(entryList)
 	if streakState.RecoveryNeeded {
@@ -303,6 +319,7 @@ func New(paths config.Paths) tea.Model {
 		},
 		sidebarEntries: computeRecentEntries(entryList, 5),
 		sidebarMetrics: computeSidebarMetrics(entryList, streakState, cfg.TasksFile),
+		showReport:     showReportVal,
 	}
 	m.logInternal("SYSTEM: Kairu TUI started")
 	m = m.setInputFocus(initialFocus)
@@ -357,7 +374,7 @@ func renderFullScreenModal(m model) string {
 	case "history":
 		return renderHistoryView(m)
 	case "report":
-		return renderDailyReportView(m)
+		return renderReportView(m)
 	case "logs":
 		return renderLogView(m)
 	case "settings":

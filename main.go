@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"kairu-tui/internal/analytics"
 	"kairu-tui/internal/backup"
 	"kairu-tui/internal/config"
 	"kairu-tui/internal/entries"
@@ -33,7 +34,27 @@ func main() {
 	importPath := flag.String("import", "", "Import entries from the provided file path into entries.json")
 	backupPath := flag.String("backup", "", "Backup entries, templates, config, and notification queue to the provided file path")
 	restorePath := flag.String("restore", "", "Restore entries, templates, config, and notification queue from the provided file path")
+	var showReport bool
+	flag.BoolVar(&showReport, "report", false, "Show weekly focus report")
 	flag.Parse()
+
+	isReportCmd := showReport
+	for _, arg := range flag.Args() {
+		if arg == "report" {
+			isReportCmd = true
+		}
+	}
+
+	if isReportCmd {
+		entryList, err := entries.LoadEntries(paths.DataFile)
+		if err != nil {
+			fmt.Printf("Error: failed to load entries: %v\n", err)
+			os.Exit(1)
+		}
+		report := analytics.BuildWeeklyReport(entryList)
+		fmt.Print(analytics.RenderReport(report))
+		return
+	}
 
 	if *exportPath != "" && *importPath != "" {
 		fmt.Println("Error: --export and --import cannot be used together.")

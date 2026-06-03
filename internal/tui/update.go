@@ -1132,7 +1132,10 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
-		if m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" {
+		if m.mode == "timer" || m.mode == "break" || m.mode == "stats" || m.mode == "analytics" || m.mode == "heatmap" || m.mode == "history" {
+			if m.mode == "timer" || m.mode == "break" {
+				m.statsReturnMode = m.mode
+			}
 			m.mode = "report"
 			return m, nil
 		}
