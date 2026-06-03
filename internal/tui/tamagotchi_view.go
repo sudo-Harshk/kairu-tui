@@ -46,5 +46,5 @@ func renderPetLevelUpCard(petState pet.PetState, theme config.ThemeStyle) string
 	content := fmt.Sprintf("       ★  %s HAS REACHED LEVEL %d! ★\n\n                 Evolution Stage: %s\n\n            \"Quack! Gaining power! Thank you!\"\n\n[ Press any key to continue... ]", strings.ToUpper(petState.Name), petState.Level, stageName)
 
 	// Level-up card styled as a Card with success (accent) border and accent title
-	return ui.Panel("🎉 LEVEL UP! LEVEL UP! 🎉", content, theme, 52, lipgloss.RoundedBorder(), theme.Accent)
+	return ui.Panel("🎉 LEVEL UP! LEVEL UP! 🎉", content, theme, 52, lipgloss.RoundedBorder(), theme.WorkAccent)
 }

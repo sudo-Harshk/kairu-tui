@@ -52,6 +52,17 @@ type historyFilterState struct {
 	dateRange     string // "all", "today", "week", "month"
 }
 
+type sidebarMetrics struct {
+	TodayTotal     time.Duration
+	SessionCount   int
+	Streak         int
+	WorkBreakRatio float64
+	DailyProgress  float64
+	WeeklyProgress float64
+	MicroTasks     []string
+	MicroTasksDone []bool
+}
+
 type model struct {
 	seconds             int
 	sessionTarget       int
@@ -123,6 +134,10 @@ type model struct {
 	binaryGame             pet.BinaryGameState
 	kairuType              kairutype.KairuTypeState
 	historyFilter          historyFilterState
+	height                 int
+	sidebarEntries         []entries.Entry
+	sidebarMetrics         sidebarMetrics
+	overlayMode            bool
 }
 
 func tickCmd() tea.Cmd {
@@ -286,6 +301,8 @@ func New(paths config.Paths) tea.Model {
 			typeFilter:    "all",
 			dateRange:     "all",
 		},
+		sidebarEntries: computeRecentEntries(entryList, 5),
+		sidebarMetrics: computeSidebarMetrics(entryList, streakState, cfg.TasksFile),
 	}
 	m.logInternal("SYSTEM: Kairu TUI started")
 	m = m.setInputFocus(initialFocus)
@@ -306,13 +323,29 @@ func (m model) View() string {
 	m.petState.SessionElapsed = m.sessionElapsed
 
 	switch m.mode {
+	case "input", "timer", "break":
+		return renderDashboard(m, renderLeftPane(m))
+	default:
+		return renderFullScreenModal(m)
+	}
+}
+
+func renderLeftPane(m model) string {
+	switch m.mode {
 	case "input":
 		return renderInputView(m)
 	case "timer", "break":
 		return renderTimerView(m)
+	default:
+		return ""
+	}
+}
+
+func renderFullScreenModal(m model) string {
+	switch m.mode {
 	case "kairu_type":
 		theme := activeTheme(m.config)
-		return kairutype.RenderKairuTypeView(m.kairuType, m.width, theme.Accent, theme.Primary, renderBanner(m.config))
+		return kairutype.RenderKairuTypeView(m.kairuType, m.width, theme.WorkAccent, theme.Primary, renderBanner(m.config))
 	case "edit":
 		return renderEditView(m)
 	case "stats":

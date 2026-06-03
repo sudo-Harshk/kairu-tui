@@ -70,7 +70,7 @@ func InitBinaryGame() BinaryGameState {
 
 // RenderTypingGame renders the typing game LCD panel
 func RenderTypingGame(game TypingGameState, width int, theme config.ThemeStyle) string {
-	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent))
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent))
 	primary := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Primary))
 	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice))
 	wrongStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warning))
@@ -116,10 +116,10 @@ func RenderTypingGame(game TypingGameState, width int, theme config.ThemeStyle) 
 
 // RenderBinaryGame renders the binary/guessing game LCD panel
 func RenderBinaryGame(game BinaryGameState, width int, theme config.ThemeStyle) string {
-	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent))
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent))
 	primary := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Primary))
 	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice))
-	gold := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent))
+	gold := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent))
 
 	var rows []string
 	rows = append(rows, primary.Bold(true).Render("   🤖  B I N A R Y   G U E S S I N G   G A M E"))

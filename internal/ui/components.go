@@ -38,11 +38,11 @@ func ProgressBar(percent float64, totalWidth int, fillColor string, emptyColor s
 func Badge(text string, theme config.ThemeStyle, useAccent bool) string {
 	color := theme.Primary
 	if useAccent {
-		color = theme.Accent
+		color = theme.WorkAccent
 	}
 	return lipgloss.NewStyle().
 		Background(lipgloss.Color(color)).
-		Foreground(lipgloss.Color(theme.Surface)).
+		Foreground(lipgloss.Color(theme.Background)).
 		Bold(true).
 		Padding(0, 1).
 		Render(text)
@@ -52,8 +52,8 @@ func Badge(text string, theme config.ThemeStyle, useAccent bool) string {
 func Button(text string, selected bool, theme config.ThemeStyle) string {
 	if selected {
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Surface)).
-			Background(lipgloss.Color(theme.Accent)). // Accent background
+			Foreground(lipgloss.Color(theme.Background)).
+			Background(lipgloss.Color(theme.WorkAccent)). // Accent background
 			Bold(true).
 			Padding(0, 1).
 			Render(text)
@@ -82,7 +82,7 @@ func Panel(title string, content string, theme config.ThemeStyle, width int, bor
 	}
 
 	titleS := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Accent)).
+		Foreground(lipgloss.Color(theme.WorkAccent)).
 		Bold(true)
 
 	// Lipgloss border takes 2 chars, padding takes 2 chars (left + right).
@@ -107,7 +107,7 @@ func StatusBar(shortcuts []string, errMessage string, theme config.ThemeStyle, w
 		}
 		if strings.HasPrefix(s, "[") && strings.Contains(s, "]") {
 			parts := strings.SplitN(s, "]", 2)
-			keyPart := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true).Render(parts[0] + "]")
+			keyPart := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent)).Bold(true).Render(parts[0] + "]")
 			shortcutsStr += keyPart + parts[1]
 		} else {
 			shortcutsStr += s
@@ -134,10 +134,10 @@ func Toast(message string, theme config.ThemeStyle, width int) string {
 		return ""
 	}
 	toastContent := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Accent)).
+		Foreground(lipgloss.Color(theme.WorkAccent)).
 		Bold(true).
 		Render("🔔 " + message)
-	return Panel("", toastContent, theme, width, lipgloss.RoundedBorder(), theme.Accent)
+	return Panel("", toastContent, theme, width, lipgloss.RoundedBorder(), theme.WorkAccent)
 }
 
 // KeyHints renders a themed helper/hints line at the bottom of a panel.
@@ -145,7 +145,7 @@ func KeyHints(message string, theme config.ThemeStyle) string {
 	if message == "" {
 		return ""
 	}
-	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true)
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent)).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice))
 	
 	// If the message has format "Title: Description"
@@ -162,18 +162,18 @@ func FormField(label string, inputView string, focused bool, theme config.ThemeS
 		Foreground(lipgloss.Color(theme.Primary)).
 		Bold(true)
 	if focused {
-		labelStyle = labelStyle.Foreground(lipgloss.Color(theme.Accent))
+		labelStyle = labelStyle.Foreground(lipgloss.Color(theme.WorkAccent))
 	}
 	
 	inputStyle := lipgloss.NewStyle().Padding(0, 1)
 	if focused {
 		inputStyle = inputStyle.
 			Border(lipgloss.NormalBorder(), false, false, false, true).
-			BorderForeground(lipgloss.Color(theme.Accent))
+			BorderForeground(lipgloss.Color(theme.WorkAccent))
 	} else {
 		inputStyle = inputStyle.
 			Border(lipgloss.NormalBorder(), false, false, false, true).
-			BorderForeground(lipgloss.Color(theme.Dim))
+			BorderForeground(lipgloss.Color(theme.Muted))
 	}
 	
 	return labelStyle.Render(label) + "\n" + inputStyle.Render(inputView)
@@ -184,12 +184,12 @@ func Menu(items []string, selectedIndex int, theme config.ThemeStyle) string {
 	var rendered []string
 	for i, item := range items {
 		if i == selectedIndex {
-			chevron := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true).Render("> ")
-			text := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true).Render(item)
+			chevron := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent)).Bold(true).Render("> ")
+			text := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent)).Bold(true).Render(item)
 			rendered = append(rendered, chevron+text)
 		} else {
 			chevron := "  "
-			text := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Dim)).Render(item)
+			text := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Muted)).Render(item)
 			rendered = append(rendered, chevron+text)
 		}
 	}
@@ -218,8 +218,8 @@ type KeyHintPair struct {
 // KeyHint renders structured key+desc pairs consistently using theme tokens.
 func KeyHint(pairs []KeyHintPair, theme config.ThemeStyle) string {
 	var parts []string
-	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true)
-	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Dim))
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent)).Bold(true)
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Muted))
 	
 	for _, p := range pairs {
 		parts = append(parts, fmt.Sprintf("%s %s", keyStyle.Render(p.Key), descStyle.Render(p.Desc)))

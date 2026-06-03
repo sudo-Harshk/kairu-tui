@@ -93,17 +93,17 @@ func renderSettingsPreview(m model) string {
 	
 	var timerBlock string
 	if m.config.Layout == "minimal" {
-		timerBlock = themedStyle(m.config, theme.Accent).Bold(true).Render("08:45  ████████░░░░░░")
+		timerBlock = themedStyle(m.config, theme.WorkAccent).Bold(true).Render("08:45  ████████░░░░░░")
 	} else {
 		timerStr := renderASCIITimer("08:45", m.config)
 		if lipgloss.Width(timerStr) > 38 {
-			timerBlock = themedStyle(m.config, theme.Accent).Bold(true).Render("⏰ 08:45  ████████░░░░░░")
+			timerBlock = themedStyle(m.config, theme.WorkAccent).Bold(true).Render("⏰ 08:45  ████████░░░░░░")
 		} else {
-			timerBlock = themedStyle(m.config, theme.Accent).Render(timerStr)
+			timerBlock = themedStyle(m.config, theme.WorkAccent).Render(timerStr)
 		}
 	}
 
-	themeLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Render("  Theme:  " + themeLabel(m.config.Theme))
+	themeLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent)).Render("  Theme:  " + themeLabel(m.config.Theme))
 	fontLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Primary)).Render("  Font:   " + font.Label)
 	layoutLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice)).Render("  Layout: " + layoutLabel(m.config.Layout))
 
@@ -191,8 +191,8 @@ func renderSettingLine(selected bool, label, value string, theme config.ThemeSty
 	line := fmt.Sprintf("  %-22s %s", label, value)
 	if selected {
 		return lipgloss.NewStyle().
-			Background(lipgloss.Color(theme.Accent)).
-			Foreground(lipgloss.Color("0")). // black text
+			Background(lipgloss.Color(theme.WorkAccent)).
+			Foreground(lipgloss.Color(theme.Background)).
 			Bold(true).
 			Render(line)
 	}
@@ -217,7 +217,7 @@ func hourLabel(hour int) string {
 
 func renderVolumeBar(vol float64, theme config.ThemeStyle) string {
 	pct := vol * 100
-	bar := ui.ProgressBar(pct, 10, theme.Accent, theme.Primary)
+	bar := ui.ProgressBar(pct, 10, theme.WorkAccent, theme.Primary)
 	return fmt.Sprintf("[%s] %d%%", bar, int(pct))
 }
 

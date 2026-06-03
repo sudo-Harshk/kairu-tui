@@ -15,7 +15,7 @@ import (
 )
 
 func renderBanner(cfg config.Config) string {
-	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(activeTheme(cfg).Accent)).Padding(0, 2).Render("KAIRU  •  Grow Your Focus")
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(activeTheme(cfg).WorkAccent)).Padding(0, 2).Render("KAIRU  •  Grow Your Focus")
 }
 
 func renderStatsTabs(currentMode string, cfg config.Config) string {
@@ -37,7 +37,7 @@ func renderStatsTabs(currentMode string, cfg config.Config) string {
 		style := lipgloss.NewStyle().Padding(0, 1)
 		if t.mode == currentMode {
 			style = style.
-				Foreground(lipgloss.Color(theme.Accent)).
+				Foreground(lipgloss.Color(theme.WorkAccent)).
 				Bold(true).
 				Underline(true)
 		} else {
@@ -72,7 +72,7 @@ func renderHorizontalProgressBar(percent float64, totalWidth int, theme config.T
 
 	color := theme.Primary
 	if useAccent {
-		color = theme.Accent
+		color = theme.WorkAccent
 	}
 
 	filledStr := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(strings.Repeat(filledChar, filledLength))
@@ -277,7 +277,7 @@ func renderHeatmapBlock(seconds int, cfg config.Config, theme config.ThemeStyle)
 	} else if minutes < 120 {
 		return style.Foreground(lipgloss.Color(theme.Primary)).Bold(true).Render("█")
 	} else {
-		return style.Foreground(lipgloss.Color(theme.Accent)).Render("█")
+		return style.Foreground(lipgloss.Color(theme.WorkAccent)).Render("█")
 	}
 }
 

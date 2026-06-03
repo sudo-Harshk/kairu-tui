@@ -145,3 +145,38 @@ func (m model) currentSessionTags() []string {
 	}
 	return parseTags(m.tagInput.Value())
 }
+
+func centerVertical(height int, content string) string {
+	contentHeight := lipgloss.Height(content)
+	if contentHeight >= height {
+		return content
+	}
+	topPad := (height - contentHeight) / 2
+	bottomPad := height - contentHeight - topPad
+
+	var sb strings.Builder
+	for i := 0; i < topPad; i++ {
+		sb.WriteString("\n")
+	}
+	sb.WriteString(content)
+	for i := 0; i < bottomPad; i++ {
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+func outerMargin(width int, content string) string {
+	contentWidth := lipgloss.Width(content)
+	if contentWidth >= width {
+		return content
+	}
+	leftPad := (width - contentWidth) / 2
+	leftSpace := strings.Repeat(" ", leftPad)
+
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		lines[i] = leftSpace + line
+	}
+	return strings.Join(lines, "\n")
+}
+

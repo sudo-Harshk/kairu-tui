@@ -255,6 +255,9 @@ func (m model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
+		m.sidebarEntries = computeRecentEntries(m.entries, 5)
+		m.sidebarMetrics = computeSidebarMetrics(m.entries, m.streakState, m.config.TasksFile)
 		if m.petEnabled && m.showPetSidebar && m.width >= 90 {
 			return m, petAnimTick()
 		}
@@ -1481,6 +1484,8 @@ func (m *model) saveSession() tea.Cmd {
 
 	m.logInternal("SESSION: Saved %s (%s)", m.taskName, streak.FormatDuration(duration))
 	m.entries = entriesList
+	m.sidebarEntries = computeRecentEntries(entriesList, 5)
+	m.sidebarMetrics = computeSidebarMetrics(entriesList, m.streakState, m.config.TasksFile)
 	fileTasks := tasks.LoadTasksFromFile(m.config.TasksFile)
 	m.taskSuggestions = tasks.BuildTaskSuggestions(entriesList, m.config.PinnedTasks, fileTasks)
 	m.suggestionIndex = -1

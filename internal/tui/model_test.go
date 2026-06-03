@@ -492,10 +492,14 @@ func TestVisualAnalyticsRendering(t *testing.T) {
 	t.Parallel()
 
 	theme := config.ThemeStyle{
-		Primary: "2",
-		Accent:  "10",
-		Notice:  "3",
-		Warning: "1",
+		Primary:    "#cdd6f4",
+		WorkAccent: "#ff79c6",
+		Notice:     "#f9e2af",
+		Warning:    "#f38ba8",
+		Muted:      "#6c7086",
+		Background: "#1e1e2e",
+		Border:     "#313244",
+		Base:       "#1e1e2e",
 	}
 
 	t.Run("ProgressBar", func(t *testing.T) {

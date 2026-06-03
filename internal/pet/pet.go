@@ -806,7 +806,7 @@ func RenderPetBox(pet PetState, width int, theme config.ThemeStyle) string {
 		pct = 0
 	}
 	// Use unified ui.ProgressBar component
-	xpBar := ui.ProgressBar(pct, barWidth, theme.Accent, theme.Notice)
+	xpBar := ui.ProgressBar(pct, barWidth, theme.WorkAccent, theme.Notice)
 
 	statsBlock := fmt.Sprintf(
 		"🐾 %s (Lv.%d)\n%s %d%%\nEvolution: %s\nMood: %s\nFed: 🍖 %d",
@@ -857,7 +857,7 @@ func wrapText(text string, limit int) []string {
 
 // RenderTamagotchiScreen draws the interactive console screen of the companion
 func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSelection int, feedbackMsg string, theme config.ThemeStyle) string {
-	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent))
+	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent))
 	primaryStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Primary))
 	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warning))
 	goldStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Notice))
@@ -882,9 +882,9 @@ func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSele
 	}
 
 	// 1. STATS INNER BARS (themed and color-coded)
-	healthBar := renderSmallBar(pet.Health, 10, theme.Accent, theme)
+	healthBar := renderSmallBar(pet.Health, 10, theme.WorkAccent, theme)
 	hungerBar := renderSmallBar(pet.Hunger, 10, theme.Warning, theme)
-	happyBar := renderSmallBar(pet.Happiness, 10, theme.Accent, theme)
+	happyBar := renderSmallBar(pet.Happiness, 10, theme.WorkAccent, theme)
 	cleanBar := renderSmallBar(pet.Cleanliness, 10, theme.Primary, theme)
 	energyBar := renderSmallBar(pet.Energy, 10, theme.Notice, theme)
 
@@ -905,7 +905,7 @@ func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSele
 	// XP & Coins Display (with badge for Level)
 	xpTarget := pet.Level * 250
 	pctXP := float64(pet.Experience) / float64(xpTarget)
-	xpBar := renderSmallBar(int(pctXP*100), 10, theme.Accent, theme)
+	xpBar := renderSmallBar(int(pctXP*100), 10, theme.WorkAccent, theme)
 
 	statusRight := fmt.Sprintf(
 		"  🐾 Name: %s\n  ⭐ Level: %s\n  🧬 Evolution: %s\n  📈 XP: %s %d%%\n  🪙 Coins: %s",
@@ -1020,7 +1020,7 @@ func RenderTamagotchiScreen(pet PetState, width int, activeMenu string, menuSele
 
 	shellContent = append(shellContent, "", lcdBlock, "", actionBlock)
 
-	casing := ui.Panel("🎮 CYBER-PET RETRO CONSOLE (1996)", strings.Join(shellContent, "\n"), theme, innerWidth+4, lipgloss.DoubleBorder(), theme.Accent)
+	casing := ui.Panel("🎮 CYBER-PET RETRO CONSOLE (1996)", strings.Join(shellContent, "\n"), theme, innerWidth+4, lipgloss.DoubleBorder(), theme.WorkAccent)
 
 	return centerBlock(width, casing)
 }

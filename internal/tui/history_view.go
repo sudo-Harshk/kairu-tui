@@ -88,8 +88,8 @@ func renderHistoryView(m model) string {
 	}
 	rangeBadge := ui.Badge(rangeLabel, theme, m.historyFilter.dateRange != "all")
 
-	tHint := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true).Render("[t]")
-	dHint := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent)).Bold(true).Render("[d]")
+	tHint := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent)).Bold(true).Render("[t]")
+	dHint := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WorkAccent)).Bold(true).Render("[d]")
 	filterLine := fmt.Sprintf("  %s Type: %s    %s Range: %s", tHint, typeBadge, dHint, rangeBadge)
 
 	// Counts and duration
